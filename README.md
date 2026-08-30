@@ -22,6 +22,7 @@ uma cópia errada apaga o trabalho de vez. É esse o motivo desta pasta.
 | --- | --- | --- |
 | `lendas_demos.sp` | Grava a demo do SourceTV por mapa em `demos/AAAA-MM/`, no formato de nome que o backend exige | `GET /api/demos` |
 | `lendas_bans.sp` | Exporta os bans do SourceBans++ pra um JSON dentro do servidor | `GET /api/bans` |
+| `lendas_players.sp` | Mantém o índice `nick -> SteamID64` que permite avatar real no ranking | `GET /api/ranking`, `GET /api/players` |
 
 Cada um explica no próprio cabeçalho **por que** foi feito daquele jeito —
 principalmente as decisões que não são óbvias (o atraso antes de gravar, a
