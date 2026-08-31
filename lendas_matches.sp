@@ -31,17 +31,13 @@
 #include <sourcemod>
 #include <cstrike>
 
-#define PLUGIN_VERSION "1.6.0"
-#define ARQUIVO        "data/lendas_matches.json"
+#define PLUGIN_VERSION "2.0.0"
+#define ARQUIVO        "data/lendas_matches.jsonl"
 
-/** Quantas partidas o arquivo guarda. Mais que isso, a mais velha sai. */
-#define MAX_PARTIDAS   100
 #define MAX_ROUNDS     60
 #define MAX_JOGADORES  64
 
 #define NICK_MAX       64
-/** Uma partida inteira cabe numa linha; ver Lendas_CopiarAnteriores. */
-#define LINHA_MAX      8192
 #define ID_MAX         24
 
 enum struct Round
@@ -311,48 +307,35 @@ void Lendas_FecharPartida()
 	if (ctFinal < 0) ctFinal = 0;
 	if (tFinal < 0)  tFinal = 0;
 
+	/**
+	 * ACRESCENTA uma linha ao arquivo. Nao le, nao reescreve, nao renomeia.
+	 *
+	 * As versoes anteriores mantinham o historico relendo o proprio arquivo
+	 * e regravando tudo. Isso corrompeu o JSON tres vezes seguidas, sempre
+	 * na releitura: o `File.ReadLine` do SourceMod corta a linha em 2048
+	 * bytes independentemente do buffer que a gente passa (comprovado: o
+	 * arquivo saiu com duas linhas de exatamente 2047 caracteres, partindo
+	 * strings de JSON ao meio).
+	 *
+	 * Formato JSON Lines: uma partida completa por linha, sem cabecalho nem
+	 * fechamento. Some o motivo do bug — nao ha mais leitura — e some
+	 * tambem o teto de 100 partidas, que so existia por causa do array em
+	 * memoria. O backend le linha a linha e ignora a que nao parsear.
+	 */
 	char destino[PLATFORM_MAX_PATH];
 	BuildPath(Path_SM, destino, sizeof(destino), ARQUIVO);
-	char temp[PLATFORM_MAX_PATH];
-	Format(temp, sizeof(temp), "%s.tmp", destino);
 
-	File f = OpenFile(temp, "w");
+	File f = OpenFile(destino, "a");
 	if (f == null)
 	{
-		LogError("[Matches] nao consegui escrever em %s", temp);
+		LogError("[Matches] nao consegui abrir %s pra acrescentar", destino);
 		return;
 	}
-
-	f.WriteLine("{\"version\":1,\"generatedAt\":%d,\"matches\":[", GetTime());
 	Lendas_EscreverPartidaAtual(f, ctFinal, tFinal);
-
-	/**
-	 * As antigas sao COPIADAS DIRETO do arquivo velho pro novo, uma linha
-	 * por vez, sem passar por um array intermediario.
-	 *
-	 * A 1.2.0 carregava tudo num `char[100][2048]` e isso quebrou de duas
-	 * formas: uma partida com 33 rounds passa de 2800 caracteres, entao o
-	 * ReadLine cortava a linha no meio de uma string JSON (o resto virava
-	 * uma "linha" nova e o arquivo saia invalido — "Bad control character
-	 * in string literal"); e 100 x 2048 sao 200 KB parados so pra copiar
-	 * texto de um arquivo pro outro.
-	 *
-	 * Em fluxo, o unico limite e o buffer de UMA linha, e ele pode ser
-	 * generoso sem custar nada.
-	 */
-	int copiadas = Lendas_CopiarAnteriores(destino, f);
-	f.WriteLine("]}");
 	delete f;
 
-	DeleteFile(destino);
-	if (!RenameFile(destino, temp))
-	{
-		LogError("[Matches] falha ao renomear %s -> %s", temp, destino);
-		return;
-	}
-
-	LogMessage("[Matches] partida gravada: %s, %d rounds, %d jogadores (+%d no historico).",
-		g_sMapa, g_iNumRounds, g_iNumJogadores, copiadas);
+	LogMessage("[Matches] partida gravada: %s, %d rounds, %d jogadores.",
+		g_sMapa, g_iNumRounds, g_iNumJogadores);
 }
 
 /**
@@ -438,52 +421,6 @@ void Lendas_Sanitizar(const char[] entrada, char[] saida, int maxlen)
 			saida[j++] = c;
 	}
 	saida[j] = '\0';
-}
-
-/**
- * Copia as partidas ja gravadas do arquivo antigo pro novo, em fluxo.
- *
- * Parsing deliberadamente burro, e agora ele CASA com o escritor: a 1.2.0
- * em diante grava exatamente uma partida por linha, entao basta repassar as
- * linhas entre `"matches":[` e o `]}` final, tirando a virgula da frente.
- * Um parser de JSON de verdade em SourcePawn custaria muito mais do que o
- * problema pede.
- *
- * Devolve quantas foram copiadas.
- */
-int Lendas_CopiarAnteriores(const char[] caminho, File saida)
-{
-	File origem = OpenFile(caminho, "r");
-	if (origem == null)
-		return 0;
-
-	int copiadas = 0;
-	// Folgado de proposito: uma partida de 33 rounds com 10 jogadores passa
-	// de 3 KB, e cortar a linha aqui e o que corrompeu o arquivo na 1.2.0.
-	char linha[LINHA_MAX];
-	bool dentro = false;
-
-	while (!origem.EndOfFile() && origem.ReadLine(linha, sizeof(linha)))
-	{
-		TrimString(linha);
-		if (!dentro)
-		{
-			if (StrContains(linha, "\"matches\":[") != -1)
-				dentro = true;
-			continue;
-		}
-		if (StrEqual(linha, "]}") || strlen(linha) < 2)
-			continue;
-		if (copiadas >= MAX_PARTIDAS - 1)
-			break;
-
-		int inicio = linha[0] == ',' ? 1 : 0;
-		saida.WriteLine(",%s", linha[inicio]);
-		copiadas++;
-	}
-
-	delete origem;
-	return copiadas;
 }
 
 void Lendas_JsonEscape(const char[] entrada, char[] saida, int maxlen)
