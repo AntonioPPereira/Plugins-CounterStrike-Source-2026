@@ -31,7 +31,7 @@
 #include <sourcemod>
 #include <cstrike>
 
-#define PLUGIN_VERSION "2.0.0"
+#define PLUGIN_VERSION "2.1.0"
 #define ARQUIVO        "data/lendas_matches.jsonl"
 
 #define MAX_ROUNDS     60
@@ -176,9 +176,15 @@ public void Evento_RoundEnd(Event evento, const char[] nome, bool naoBroadcast)
 	}
 	g_iUltimoTotal = ct + t;
 
+	/**
+	 * Guarda o placar JA descontado do que existia no inicio do mapa, e no
+	 * MOMENTO em que o round acabou — que e exatamente o numero que aparece
+	 * na tela ao vivo (o `lendas_live` le o mesmo `CS_GetTeamScore`, so que
+	 * continuamente).
+	 */
 	g_aRounds[g_iNumRounds].numero  = g_iNumRounds + 1;
-	g_aRounds[g_iNumRounds].ctScore = ct;
-	g_aRounds[g_iNumRounds].tScore  = t;
+	g_aRounds[g_iNumRounds].ctScore = ct - g_iCtInicial;
+	g_aRounds[g_iNumRounds].tScore  = t - g_iTInicial;
 	strcopy(g_aRounds[g_iNumRounds].vencedor, 4, vencedor == CS_TEAM_CT ? "CT" : "T");
 
 	Lendas_MotivoDoRound(evento.GetInt("reason"), g_aRounds[g_iNumRounds].motivo, 16);
@@ -253,6 +259,17 @@ void Lendas_GuardarJogador(int client)
 	g_aJogadores[pos].deaths = GetClientDeaths(client);
 }
 
+/**
+ * Formato da partida (`mp_maxrounds`). O mix roda MR13 no padrao de hoje,
+ * entao a linha do tempo sabe quantas rodadas cabem em vez de deduzir pelo
+ * que foi jogado. 0 = cvar ausente; a tela cai no numero de rodadas.
+ */
+int Lendas_MaxRounds()
+{
+	ConVar cv = FindConVar("mp_maxrounds");
+	return cv == null ? 0 : cv.IntValue;
+}
+
 void Lendas_NomeDoTime(int team, char[] saida, int maxlen)
 {
 	if (team == CS_TEAM_CT)      strcopy(saida, maxlen, "CT");
@@ -287,23 +304,21 @@ void Lendas_FecharPartida()
 		return;
 
 	/**
-	 * O placar da partida e a DIFERENCA desde o comeco do mapa, nao o valor
-	 * cru de `CS_GetTeamScore`.
+	 * O placar final e o do ULTIMO ROUND REGISTRADO, nao uma leitura nova
+	 * aqui no fim do mapa.
 	 *
-	 * Motivo: o contador de time do servidor nem sempre zera na troca de
-	 * mapa — com restart do mix, ou quando o plugin entra e o mapa recomeca,
-	 * ele vem acumulado. Em 2026-08-31 isso gravou "14x12 com 2 rounds",
-	 * numeros que nao existem juntos.
+	 * Ler `CS_GetTeamScore` no `OnMapEnd` era o erro: nesse ponto o placar
+	 * ja pode ter sido zerado pelo fim da partida, e o numero saia sem
+	 * relacao com os rounds gravados — "14x12 com 2 rounds", "5x13 com 6".
 	 *
-	 * Uma tentativa anterior usou a invariante "soma dos placares == rounds
-	 * contados" pra detectar isso, e estava ERRADA: num servidor de mix o
-	 * knife round e os restarts fazem a conta nao fechar mesmo em partida
-	 * legitima — ela rejeitou as tres partidas reais que existiam. Medir a
-	 * diferenca resolve sem depender de nenhuma suposicao sobre o formato
-	 * do jogo.
+	 * Cada round ja guarda o placar do instante em que ele acabou, que e o
+	 * MESMO numero que aparece ao vivo na pagina inicial (o `lendas_live`
+	 * le o mesmo `CS_GetTeamScore`, so que continuamente). Usando o ultimo,
+	 * placar e linha do tempo passam a concordar por construcao: nao existe
+	 * mais o caso de eles se contradizerem.
 	 */
-	int ctFinal = CS_GetTeamScore(CS_TEAM_CT) - g_iCtInicial;
-	int tFinal  = CS_GetTeamScore(CS_TEAM_T) - g_iTInicial;
+	int ctFinal = g_aRounds[g_iNumRounds - 1].ctScore;
+	int tFinal  = g_aRounds[g_iNumRounds - 1].tScore;
 	if (ctFinal < 0) ctFinal = 0;
 	if (tFinal < 0)  tFinal = 0;
 
@@ -363,8 +378,8 @@ void Lendas_EscreverPartidaAtual(File f, int ct, int t)
 
 	char parte[512];
 	Format(parte, sizeof(parte),
-		"{\"id\":\"%s\",\"map\":\"%s\",\"startedAt\":%d,\"endedAt\":%d,\"ctScore\":%d,\"tScore\":%d,\"rounds\":[",
-		id, mapaEsc, g_iInicio, GetTime(), ct, t);
+		"{\"id\":\"%s\",\"map\":\"%s\",\"startedAt\":%d,\"endedAt\":%d,\"ctScore\":%d,\"tScore\":%d,\"maxRounds\":%d,\"rounds\":[",
+		id, mapaEsc, g_iInicio, GetTime(), ct, t, Lendas_MaxRounds());
 	f.WriteString(parte, false);
 
 	for (int i = 0; i < g_iNumRounds; i++)
