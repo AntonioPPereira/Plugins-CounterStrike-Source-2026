@@ -31,7 +31,7 @@
 #include <sourcemod>
 #include <cstrike>
 
-#define PLUGIN_VERSION "1.2.0"
+#define PLUGIN_VERSION "1.5.0"
 #define ARQUIVO        "data/lendas_matches.json"
 
 /** Quantas partidas o arquivo guarda. Mais que isso, a mais velha sai. */
@@ -40,6 +40,8 @@
 #define MAX_JOGADORES  64
 
 #define NICK_MAX       64
+/** Uma partida inteira cabe numa linha; ver Lendas_CopiarAnteriores. */
+#define LINHA_MAX      8192
 #define ID_MAX         24
 
 enum struct Round
@@ -87,6 +89,14 @@ int     g_iNumJogadores;
  */
 bool g_bParcial;
 
+/**
+ * Placar dos times no INICIO do mapa. Quase sempre 0, mas nao sempre: com
+ * restart do mix o contador do servidor vem acumulado, e sem esta linha de
+ * base a partida herdaria o placar da anterior.
+ */
+int g_iCtInicial;
+int g_iTInicial;
+
 public Plugin myinfo =
 {
 	name        = "L.E.N.D.A.S. Matches",
@@ -118,6 +128,8 @@ public void OnMapStart()
 	g_iNumJogadores  = 0;
 	// Vimos este mapa comecar: daqui pra frente o registro e completo.
 	g_bParcial       = false;
+	g_iCtInicial     = CS_GetTeamScore(CS_TEAM_CT);
+	g_iTInicial      = CS_GetTeamScore(CS_TEAM_T);
 }
 
 public void OnMapEnd()
@@ -253,16 +265,32 @@ void Lendas_FecharPartida()
 	if (g_iNumJogadores == 0)
 		return;
 
+	/**
+	 * O placar da partida e a DIFERENCA desde o comeco do mapa, nao o valor
+	 * cru de `CS_GetTeamScore`.
+	 *
+	 * Motivo: o contador de time do servidor nem sempre zera na troca de
+	 * mapa — com restart do mix, ou quando o plugin entra e o mapa recomeca,
+	 * ele vem acumulado. Em 2026-08-31 isso gravou "14x12 com 2 rounds",
+	 * numeros que nao existem juntos.
+	 *
+	 * Uma tentativa anterior usou a invariante "soma dos placares == rounds
+	 * contados" pra detectar isso, e estava ERRADA: num servidor de mix o
+	 * knife round e os restarts fazem a conta nao fechar mesmo em partida
+	 * legitima — ela rejeitou as tres partidas reais que existiam. Medir a
+	 * diferenca resolve sem depender de nenhuma suposicao sobre o formato
+	 * do jogo.
+	 */
+	int ctFinal = CS_GetTeamScore(CS_TEAM_CT) - g_iCtInicial;
+	int tFinal  = CS_GetTeamScore(CS_TEAM_T) - g_iTInicial;
+	if (ctFinal < 0) ctFinal = 0;
+	if (tFinal < 0)  tFinal = 0;
+
 	char destino[PLATFORM_MAX_PATH];
 	BuildPath(Path_SM, destino, sizeof(destino), ARQUIVO);
-
-	// Le o que ja existe pra manter o historico entre reinicios, igual aos
-	// outros plugins lendas_*: o arquivo e a memoria deste plugin.
-	char anteriores[MAX_PARTIDAS][2048];
-	int nAnteriores = Lendas_LerPartidasAnteriores(destino, anteriores, sizeof(anteriores));
-
 	char temp[PLATFORM_MAX_PATH];
 	Format(temp, sizeof(temp), "%s.tmp", destino);
+
 	File f = OpenFile(temp, "w");
 	if (f == null)
 	{
@@ -271,16 +299,23 @@ void Lendas_FecharPartida()
 	}
 
 	f.WriteLine("{\"version\":1,\"generatedAt\":%d,\"matches\":[", GetTime());
-	Lendas_EscreverPartidaAtual(f);
+	Lendas_EscreverPartidaAtual(f, ctFinal, tFinal);
 
-	// As antigas vem depois — mais nova primeiro, e a mais velha cai fora
-	// quando passa do teto.
-	int limite = nAnteriores;
-	if (limite > MAX_PARTIDAS - 1)
-		limite = MAX_PARTIDAS - 1;
-	for (int i = 0; i < limite; i++)
-		f.WriteLine(",%s", anteriores[i]);
-
+	/**
+	 * As antigas sao COPIADAS DIRETO do arquivo velho pro novo, uma linha
+	 * por vez, sem passar por um array intermediario.
+	 *
+	 * A 1.2.0 carregava tudo num `char[100][2048]` e isso quebrou de duas
+	 * formas: uma partida com 33 rounds passa de 2800 caracteres, entao o
+	 * ReadLine cortava a linha no meio de uma string JSON (o resto virava
+	 * uma "linha" nova e o arquivo saia invalido — "Bad control character
+	 * in string literal"); e 100 x 2048 sao 200 KB parados so pra copiar
+	 * texto de um arquivo pro outro.
+	 *
+	 * Em fluxo, o unico limite e o buffer de UMA linha, e ele pode ser
+	 * generoso sem custar nada.
+	 */
+	int copiadas = Lendas_CopiarAnteriores(destino, f);
 	f.WriteLine("]}");
 	delete f;
 
@@ -291,8 +326,8 @@ void Lendas_FecharPartida()
 		return;
 	}
 
-	LogMessage("[Matches] partida gravada: %s, %d rounds, %d jogadores.",
-		g_sMapa, g_iNumRounds, g_iNumJogadores);
+	LogMessage("[Matches] partida gravada: %s, %d rounds, %d jogadores (+%d no historico).",
+		g_sMapa, g_iNumRounds, g_iNumJogadores, copiadas);
 }
 
 /**
@@ -309,10 +344,8 @@ void Lendas_FecharPartida()
  * `WriteString(..., false)` escreve sem quebra de linha; o `WriteLine("")`
  * no fim e o unico que termina a linha.
  */
-void Lendas_EscreverPartidaAtual(File f)
+void Lendas_EscreverPartidaAtual(File f, int ct, int t)
 {
-	int ct = CS_GetTeamScore(CS_TEAM_CT);
-	int t  = CS_GetTeamScore(CS_TEAM_T);
 
 	char id[64];
 	Lendas_MontarId(id, sizeof(id));
@@ -383,24 +416,29 @@ void Lendas_Sanitizar(const char[] entrada, char[] saida, int maxlen)
 }
 
 /**
- * Recupera as partidas ja gravadas, uma string JSON por partida.
+ * Copia as partidas ja gravadas do arquivo antigo pro novo, em fluxo.
  *
- * Parsing deliberadamente burro: o arquivo e escrito por este mesmo plugin,
- * uma partida por linha, entao basta pegar as linhas entre `"matches":[` e
- * o `]}` final e tirar a virgula da frente. Um parser de JSON de verdade em
- * SourcePawn custaria muito mais do que o problema pede.
+ * Parsing deliberadamente burro, e agora ele CASA com o escritor: a 1.2.0
+ * em diante grava exatamente uma partida por linha, entao basta repassar as
+ * linhas entre `"matches":[` e o `]}` final, tirando a virgula da frente.
+ * Um parser de JSON de verdade em SourcePawn custaria muito mais do que o
+ * problema pede.
+ *
+ * Devolve quantas foram copiadas.
  */
-int Lendas_LerPartidasAnteriores(const char[] caminho, char[][] saida, int maxPartidas)
+int Lendas_CopiarAnteriores(const char[] caminho, File saida)
 {
-	File f = OpenFile(caminho, "r");
-	if (f == null)
+	File origem = OpenFile(caminho, "r");
+	if (origem == null)
 		return 0;
 
-	int n = 0;
-	char linha[2048];
+	int copiadas = 0;
+	// Folgado de proposito: uma partida de 33 rounds com 10 jogadores passa
+	// de 3 KB, e cortar a linha aqui e o que corrompeu o arquivo na 1.2.0.
+	char linha[LINHA_MAX];
 	bool dentro = false;
 
-	while (!f.EndOfFile() && f.ReadLine(linha, sizeof(linha)))
+	while (!origem.EndOfFile() && origem.ReadLine(linha, sizeof(linha)))
 	{
 		TrimString(linha);
 		if (!dentro)
@@ -411,16 +449,16 @@ int Lendas_LerPartidasAnteriores(const char[] caminho, char[][] saida, int maxPa
 		}
 		if (StrEqual(linha, "]}") || strlen(linha) < 2)
 			continue;
-		if (n >= maxPartidas)
+		if (copiadas >= MAX_PARTIDAS - 1)
 			break;
 
 		int inicio = linha[0] == ',' ? 1 : 0;
-		strcopy(saida[n], 2048, linha[inicio]);
-		n++;
+		saida.WriteLine(",%s", linha[inicio]);
+		copiadas++;
 	}
 
-	delete f;
-	return n;
+	delete origem;
+	return copiadas;
 }
 
 void Lendas_JsonEscape(const char[] entrada, char[] saida, int maxlen)
