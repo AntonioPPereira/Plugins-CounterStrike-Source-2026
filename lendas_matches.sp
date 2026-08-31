@@ -31,7 +31,7 @@
 #include <sourcemod>
 #include <cstrike>
 
-#define PLUGIN_VERSION "1.1.0"
+#define PLUGIN_VERSION "1.2.0"
 #define ARQUIVO        "data/lendas_matches.json"
 
 /** Quantas partidas o arquivo guarda. Mais que isso, a mais velha sai. */
@@ -295,6 +295,20 @@ void Lendas_FecharPartida()
 		g_sMapa, g_iNumRounds, g_iNumJogadores);
 }
 
+/**
+ * Escreve a partida em UMA LINHA SO.
+ *
+ * Isto nao e estetica: `Lendas_LerPartidasAnteriores` recupera o historico
+ * lendo o arquivo linha a linha, uma partida por linha. A versao 1.1.0
+ * escrevia cada round e cada jogador na sua propria linha, entao na SEGUNDA
+ * gravacao o leitor tratou cada uma dessas ~40 linhas como se fosse uma
+ * partida e devolveu todas com virgula na frente — o arquivo virou JSON
+ * invalido (`"rounds":[ ,{...}` e `,],"players":[`) e o backend nao
+ * conseguia ler nada.
+ *
+ * `WriteString(..., false)` escreve sem quebra de linha; o `WriteLine("")`
+ * no fim e o unico que termina a linha.
+ */
 void Lendas_EscreverPartidaAtual(File f)
 {
 	int ct = CS_GetTeamScore(CS_TEAM_CT);
@@ -306,29 +320,36 @@ void Lendas_EscreverPartidaAtual(File f)
 	char mapaEsc[128];
 	Lendas_JsonEscape(g_sMapa, mapaEsc, sizeof(mapaEsc));
 
-	f.WriteLine("{\"id\":\"%s\",\"map\":\"%s\",\"startedAt\":%d,\"endedAt\":%d,\"ctScore\":%d,\"tScore\":%d,\"rounds\":[",
+	char parte[512];
+	Format(parte, sizeof(parte),
+		"{\"id\":\"%s\",\"map\":\"%s\",\"startedAt\":%d,\"endedAt\":%d,\"ctScore\":%d,\"tScore\":%d,\"rounds\":[",
 		id, mapaEsc, g_iInicio, GetTime(), ct, t);
+	f.WriteString(parte, false);
 
 	for (int i = 0; i < g_iNumRounds; i++)
 	{
-		f.WriteLine("%s{\"n\":%d,\"winner\":\"%s\",\"reason\":\"%s\",\"ct\":%d,\"t\":%d}",
+		Format(parte, sizeof(parte), "%s{\"n\":%d,\"winner\":\"%s\",\"reason\":\"%s\",\"ct\":%d,\"t\":%d}",
 			i == 0 ? "" : ",",
 			g_aRounds[i].numero, g_aRounds[i].vencedor, g_aRounds[i].motivo,
 			g_aRounds[i].ctScore, g_aRounds[i].tScore);
+		f.WriteString(parte, false);
 	}
 
-	f.WriteLine("],\"players\":[");
+	f.WriteString("],\"players\":[", false);
 
 	char nickEsc[NICK_MAX * 2];
 	for (int i = 0; i < g_iNumJogadores; i++)
 	{
 		Lendas_JsonEscape(g_aJogadores[i].nick, nickEsc, sizeof(nickEsc));
-		f.WriteLine("%s{\"steamId64\":\"%s\",\"name\":\"%s\",\"team\":\"%s\",\"kills\":%d,\"deaths\":%d}",
+		Format(parte, sizeof(parte),
+			"%s{\"steamId64\":\"%s\",\"name\":\"%s\",\"team\":\"%s\",\"kills\":%d,\"deaths\":%d}",
 			i == 0 ? "" : ",",
 			g_aJogadores[i].steamId64, nickEsc, g_aJogadores[i].time,
 			g_aJogadores[i].kills, g_aJogadores[i].deaths);
+		f.WriteString(parte, false);
 	}
 
+	// O unico que quebra a linha: daqui pra frente e outra partida.
 	f.WriteLine("]}");
 }
 
