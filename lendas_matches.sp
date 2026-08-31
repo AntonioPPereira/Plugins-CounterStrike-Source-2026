@@ -31,7 +31,7 @@
 #include <sourcemod>
 #include <cstrike>
 
-#define PLUGIN_VERSION "1.0.0"
+#define PLUGIN_VERSION "1.1.0"
 #define ARQUIVO        "data/lendas_matches.json"
 
 /** Quantas partidas o arquivo guarda. Mais que isso, a mais velha sai. */
@@ -75,6 +75,18 @@ int    g_iNumRounds;
 Jogador g_aJogadores[MAX_JOGADORES];
 int     g_iNumJogadores;
 
+/**
+ * A partida em andamento comecou ANTES deste plugin carregar?
+ *
+ * Carregar no meio de um mapa (sm plugins load) nao dispara OnMapStart,
+ * entao nao sabemos o mapa, nem a hora de inicio, nem os rounds ja jogados,
+ * nem quem ja saiu. Gravar assim produziria uma partida pela metade
+ * parecendo inteira — e um id quebrado (mapa vazio, data de 1970) que
+ * ficaria no arquivo pra sempre. Esta partida e descartada; a proxima, que
+ * comeca com o plugin ja de pe, e gravada normalmente.
+ */
+bool g_bParcial;
+
 public Plugin myinfo =
 {
 	name        = "L.E.N.D.A.S. Matches",
@@ -92,6 +104,10 @@ public void OnPluginStart()
 	HookEvent("round_end", Evento_RoundEnd);
 	// Quem sai leva o placar dele junto; sem isso o Tab perderia essa pessoa.
 	HookEvent("player_disconnect", Evento_PlayerDisconnect, EventHookMode_Pre);
+
+	// Carga tardia: ha um mapa rodando que este plugin nao viu comecar.
+	g_bParcial = true;
+	LogMessage("[Matches] carregado no meio de um mapa — esta partida nao sera gravada; a proxima sim.");
 }
 
 public void OnMapStart()
@@ -100,6 +116,8 @@ public void OnMapStart()
 	g_iInicio        = GetTime();
 	g_iNumRounds     = 0;
 	g_iNumJogadores  = 0;
+	// Vimos este mapa comecar: daqui pra frente o registro e completo.
+	g_bParcial       = false;
 }
 
 public void OnMapEnd()
@@ -215,6 +233,13 @@ void Lendas_NomeDoTime(int team, char[] saida, int maxlen)
 
 void Lendas_FecharPartida()
 {
+	// Partida que ja estava em andamento quando o plugin subiu: ver g_bParcial.
+	if (g_bParcial)
+	{
+		LogMessage("[Matches] mapa encerrado, mas comecou antes do plugin — nao gravado.");
+		return;
+	}
+
 	// Mapa que ninguem jogou nao vira partida: warmup vazio, troca rapida,
 	// servidor reiniciando. Sem round nao ha placar pra contar.
 	if (g_iNumRounds == 0)
