@@ -31,7 +31,7 @@
 #include <sourcemod>
 #include <cstrike>
 
-#define PLUGIN_VERSION "1.5.0"
+#define PLUGIN_VERSION "1.6.0"
 #define ARQUIVO        "data/lendas_matches.json"
 
 /** Quantas partidas o arquivo guarda. Mais que isso, a mais velha sai. */
@@ -97,6 +97,9 @@ bool g_bParcial;
 int g_iCtInicial;
 int g_iTInicial;
 
+/** Soma do placar no ultimo round visto — cair significa restart. */
+int g_iUltimoTotal;
+
 public Plugin myinfo =
 {
 	name        = "L.E.N.D.A.S. Matches",
@@ -130,6 +133,7 @@ public void OnMapStart()
 	g_bParcial       = false;
 	g_iCtInicial     = CS_GetTeamScore(CS_TEAM_CT);
 	g_iTInicial      = CS_GetTeamScore(CS_TEAM_T);
+	g_iUltimoTotal   = g_iCtInicial + g_iTInicial;
 }
 
 public void OnMapEnd()
@@ -154,6 +158,27 @@ public void Evento_RoundEnd(Event evento, const char[] nome, bool naoBroadcast)
 
 	int ct = CS_GetTeamScore(CS_TEAM_CT);
 	int t  = CS_GetTeamScore(CS_TEAM_T);
+
+	/**
+	 * RESTART detectado: o placar do servidor DIMINUIU.
+	 *
+	 * Num mix isso acontece o tempo todo — knife round, mp_restartgame,
+	 * reinicio pedido pelos times. O servidor joga o placar fora, mas o
+	 * contador de rodadas daqui continuava somando, e o resultado era um
+	 * registro que se contradizia: placar 1x14 com 26 rodadas desenhadas,
+	 * a maioria vencida pelo lado que aparecia com 1 ponto.
+	 *
+	 * As rodadas de antes do restart nao valem mais nada pro servidor, entao
+	 * tambem nao valem aqui. Zerar as duas coisas juntas mantem placar e
+	 * linha do tempo contando a MESMA partida.
+	 */
+	if (ct + t < g_iUltimoTotal)
+	{
+		g_iNumRounds = 0;
+		g_iCtInicial = 0;
+		g_iTInicial  = 0;
+	}
+	g_iUltimoTotal = ct + t;
 
 	g_aRounds[g_iNumRounds].numero  = g_iNumRounds + 1;
 	g_aRounds[g_iNumRounds].ctScore = ct;
