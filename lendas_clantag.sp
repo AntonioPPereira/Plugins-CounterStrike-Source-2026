@@ -42,7 +42,7 @@
 #include <cstrike>
 #include <SteamWorks>
 
-#define PLUGIN_VERSION  "1.0.0"
+#define PLUGIN_VERSION  "1.1.0"
 
 #define TAG_MAX         32
 #define URL_MAX         256
@@ -145,7 +145,17 @@ void Lendas_Resolver(int client)
     if (!GetClientInfo(client, "cl_clanid", sClanId, sizeof(sClanId)))
         sClanId[0] = '\0';
 
-    if (g_cvDebug.BoolValue)
+    /**
+     * O log de debug so sai quando algo MUDA.
+     *
+     * `OnClientSettingsChanged` dispara a cada convar replicada que o
+     * cliente mexe — som, video, o que for — entao logar aqui sem condicao
+     * enchia o arquivo: 32 linhas identicas em um minuto, para um jogador
+     * so, na primeira vez que isto rodou de verdade. Ruido que esconde o
+     * que interessa e ainda custa I/O num servidor cheio.
+     */
+    bool mudou = !StrEqual(sClanId, g_sClanIdAtual[client]);
+    if (g_cvDebug.BoolValue && mudou)
     {
         char sAtual[TAG_MAX];
         CS_GetClientClanTag(client, sAtual, sizeof(sAtual));
