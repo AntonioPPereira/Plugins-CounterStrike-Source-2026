@@ -754,6 +754,8 @@ void Lendas_ApagarFogoPerto(const float pos[3])
     // espalhados até 80 unidades do centro da molotov (ver os offsets).
     float raioChamas = raio + 80.0;
     char cls[32];
+    // Ordem de apagar: cada chama sai um pouco depois da anterior.
+    int apagadasChama = 0;
 
     for (int ent = MaxClients + 1; ent < GetMaxEntities(); ent++)
     {
@@ -779,27 +781,29 @@ void Lendas_ApagarFogoPerto(const float pos[3])
             continue;
 
         /**
-         * O `Extinguish` do `env_fire` aceita um TEMPO: quantos segundos a
-         * chama leva morrendo. Matar a entidade na hora desperdiçava isso e
-         * fazia o fogo piscar pra fora enquanto a fumaça ainda estava
-         * inteira — os dois eventos não pareciam o mesmo evento.
+         * O `Extinguish` do `env_fire` NAO aceita parametro nesta engine.
          *
-         * Agora a chama diminui pelo mesmo tempo em que a fumaça se
-         * dissipa, e o `Kill` fica pro fim (o `Timer_KillFire` também para
-         * o som de loop, que não pode sobreviver à entidade).
+         * A wiki diz que aceita um tempo de fade, e eu passei um float — o
+         * servidor respondeu com "doesn't match type from env_fire()" e
+         * "bad input/output link" a cada fumaça. O proprio plugin original
+         * ja indicava o certo: no `AddOutput` ele usa o campo de DELAY e
+         * deixa o parametro vazio.
+         *
+         * Entao o fogo morre aos poucos de outro jeito: os 5 pontos se
+         * apagam em sequencia, e nao todos no mesmo quadro. Espalhados pela
+         * duracao do `douse`, lê como chama diminuindo em vez de sumir de
+         * uma vez — e sem depender de um parametro que a engine recusa.
          */
         float morte = sm_molotov_smoke_douse.FloatValue;
         if (morte <= 0.0)
         {
-            StopSound(ent, SNDCHAN_AUTO, SOUND_FIRE);
-            AcceptEntityInput(ent, "Extinguish");
-            AcceptEntityInput(ent, "Kill");
+            Lendas_ApagarChama(ent);
         }
         else
         {
-            SetVariantFloat(morte);
-            AcceptEntityInput(ent, "Extinguish");
-            CreateTimer(morte + 0.3, Timer_KillFire, EntIndexToEntRef(ent), TIMER_FLAG_NO_MAPCHANGE);
+            CreateTimer(morte * float(apagadasChama) / 5.0, Timer_ApagarChama,
+                EntIndexToEntRef(ent), TIMER_FLAG_NO_MAPCHANGE);
+            apagadasChama++;
         }
     }
 
@@ -970,6 +974,25 @@ void Lendas_EscolherSomApagar()
 
     g_sSomApagar[0] = '\0';
     LogMessage("[Molotov] nenhum som de apagar disponivel — o efeito fica mudo. Aponte um com sm_molotov_smoke_sound.");
+}
+
+/** Apaga UMA chama: som primeiro, depois a entidade. */
+void Lendas_ApagarChama(int ent)
+{
+    if (ent <= 0 || !IsValidEntity(ent))
+        return;
+
+    // O som e um loop preso a entidade: matar a entidade nao interrompe o
+    // loop no cliente, entao ele tem que ser parado antes.
+    StopSound(ent, SNDCHAN_AUTO, SOUND_FIRE);
+    AcceptEntityInput(ent, "Extinguish");
+    AcceptEntityInput(ent, "Kill");
+}
+
+public Action Timer_ApagarChama(Handle timer, int ref)
+{
+    Lendas_ApagarChama(EntRefToEntIndex(ref));
+    return Plugin_Stop;
 }
 
 public Action Timer_MatarFumaca(Handle timer, int ref)
