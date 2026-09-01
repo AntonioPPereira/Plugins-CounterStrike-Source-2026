@@ -23,6 +23,25 @@
 #define SOUND_EXPLODE  "weapons/by_daimon/he/explode3.wav"
 #define SOUND_FIRE     "ambient/fire/fire_big_loop1.wav"
 
+/**
+ * Candidatos a som de "apagando", em ordem de preferencia.
+ *
+ * Nao da pra saber de fora quais destes o CS:S tem — os sons base moram
+ * dentro dos VPK, nao em disco. Entao o plugin testa um por um na carga,
+ * com FileExists no filesystem do jogo (que enxerga VPK), e fica com o
+ * primeiro que existir de verdade. Chutar um e torcer daria silencio sem
+ * nenhum aviso.
+ */
+char g_sSomApagar[PLATFORM_MAX_PATH];
+char g_sCandidatos[][] = {
+    "ambient/gas/steam_loop.wav",
+    "ambient/water/water_spray1.wav",
+    "ambient/gas/steam1.wav",
+    "ambient/fire/fire_small_loop1.wav",
+    "weapons/smokegrenade/smoke_emit.wav",
+    "ambient/energy/spark6.wav"
+};
+
 // Lista completa de arquivos
 static const char g_sDownloadFiles[][] =
 {
@@ -145,7 +164,10 @@ public void OnPluginStart()
      * aparecendo, fogo apagando, e só então a fumaça se desfazendo — em vez
      * de uma coisa só acontecendo.
      */
-    sm_molotov_smoke_douse = CreateConVar("sm_molotov_smoke_douse", "0.5",
+    CreateConVar("sm_molotov_smoke_sound", "",
+        "Som ao apagar. Vazio = o plugin escolhe um que exista nesta instalação.");
+
+    sm_molotov_smoke_douse = CreateConVar("sm_molotov_smoke_douse", "0.2",
         "Quanto tempo o fogo leva morrendo quando a fumaça o apaga. 0 = some de uma vez.");
     sm_molotov_smoke_fade = CreateConVar("sm_molotov_smoke_fade", "0.0",
         "Espera antes de a fumaça começar a se desfazer. 0 = junto com o fogo.");
@@ -186,6 +208,7 @@ public void OnMapStart()
     PrecacheSound(SOUND_DRAW, true);
     PrecacheSound(SOUND_EXPLODE, true);
     PrecacheSound(SOUND_FIRE, true);
+    Lendas_EscolherSomApagar();
 
     PrecacheModel("sprites/fire.vmt", true);
 
@@ -782,7 +805,10 @@ void Lendas_ApagarFogoPerto(const float pos[3])
 
     if (apagadas > 0)
     {
-        EmitSoundToAll(SOUND_EXPLODE, SOUND_FROM_WORLD, SNDCHAN_AUTO, SNDLEVEL_NORMAL, SND_NOFLAGS, 0.5, SNDPITCH_NORMAL, -1, pos);
+        // O som de explosao servia de quebra-galho; agora existe um som
+        // proprio de apagar, quando a instalacao tiver algum.
+        if (g_sSomApagar[0] != '\0')
+            EmitSoundToAll(g_sSomApagar, SOUND_FROM_WORLD, SNDCHAN_STATIC, SNDLEVEL_NORMAL, SND_NOFLAGS, 0.85, SNDPITCH_NORMAL, -1, pos);
 
         /**
          * A fumaça se gasta ao apagar o fogo, como no CS2 — os dois somem
@@ -903,6 +929,47 @@ void Lendas_DissiparFumaca(int ent)
     // invisivel parada no mapa nao atrapalha ninguem, mas tambem nao
     // precisa ficar.
     CreateTimer(duracao + 0.5, Timer_MatarFumaca, EntIndexToEntRef(ent), TIMER_FLAG_NO_MAPCHANGE);
+}
+
+/**
+ * Acha um som de "apagando" que EXISTA nesta instalacao.
+ *
+ * `FileExists(..., true)` consulta o filesystem do jogo, que inclui os VPK
+ * — e por isso responde por sons base, que nao estao em disco. Sem nenhum
+ * candidato, o efeito fica mudo e o log diz por que; melhor que erro de
+ * som faltando a cada fumaça.
+ */
+void Lendas_EscolherSomApagar()
+{
+    ConVar cv = FindConVar("sm_molotov_smoke_sound");
+    if (cv != null)
+    {
+        char escolhido[PLATFORM_MAX_PATH];
+        cv.GetString(escolhido, sizeof(escolhido));
+        if (escolhido[0] != '\0')
+        {
+            strcopy(g_sSomApagar, sizeof(g_sSomApagar), escolhido);
+            PrecacheSound(g_sSomApagar, true);
+            LogMessage("[Molotov] som de apagar (definido no cvar): %s", g_sSomApagar);
+            return;
+        }
+    }
+
+    char caminho[PLATFORM_MAX_PATH];
+    for (int i = 0; i < sizeof(g_sCandidatos); i++)
+    {
+        Format(caminho, sizeof(caminho), "sound/%s", g_sCandidatos[i]);
+        if (!FileExists(caminho, true))
+            continue;
+
+        strcopy(g_sSomApagar, sizeof(g_sSomApagar), g_sCandidatos[i]);
+        PrecacheSound(g_sSomApagar, true);
+        LogMessage("[Molotov] som de apagar: %s", g_sSomApagar);
+        return;
+    }
+
+    g_sSomApagar[0] = '\0';
+    LogMessage("[Molotov] nenhum som de apagar disponivel — o efeito fica mudo. Aponte um com sm_molotov_smoke_sound.");
 }
 
 public Action Timer_MatarFumaca(Handle timer, int ref)
