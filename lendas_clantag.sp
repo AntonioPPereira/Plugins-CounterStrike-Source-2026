@@ -42,7 +42,7 @@
 #include <cstrike>
 #include <SteamWorks>
 
-#define PLUGIN_VERSION  "1.1.0"
+#define PLUGIN_VERSION  "1.2.0"
 
 #define TAG_MAX         32
 #define URL_MAX         256
@@ -344,6 +344,17 @@ public void OnPaginaRecebida(Handle hReq, bool bFalhou, bool bOk, EHTTPStatusCod
     if (!Lendas_AteMarca(g_sResposta[fim], "</span>", sTag, sizeof(sTag)))
         return;
 
+    /**
+     * A pagina e HTML: o que for `&`, `<`, `>` ou aspas chega como entidade,
+     * senao quebraria a marcacao. Sem desfazer isso, uma tag "A&B" viraria
+     * literalmente "A&amp;B" no placar.
+     *
+     * Acento e simbolo NAO precisam disso — a pagina e UTF-8 e a Steam manda
+     * crus (verificado: um grupo com caracteres de 3 bytes e outro com
+     * "[VALVᴱ]" chegam inteiros).
+     */
+    Lendas_DesescaparHtml(sTag, sizeof(sTag));
+
     TrimString(sTag);
     if (sTag[0] == '\0')
         return;
@@ -395,6 +406,23 @@ bool Lendas_EntreMarcas(const char[] texto, const char[] inicio, const char[] fi
     return Lendas_AteMarca(texto[a], fim, saida, maxlen);
 }
 
+/**
+ * Desfaz as entidades HTML que a Steam usa. Entidade desconhecida fica como
+ * esta: melhor um "&hearts;" visivel que um caractere inventado.
+ */
+void Lendas_DesescaparHtml(char[] texto, int maxlen)
+{
+    ReplaceString(texto, maxlen, "&lt;", "<");
+    ReplaceString(texto, maxlen, "&gt;", ">");
+    ReplaceString(texto, maxlen, "&quot;", "\"");
+    ReplaceString(texto, maxlen, "&#39;", "'");
+    ReplaceString(texto, maxlen, "&apos;", "'");
+    ReplaceString(texto, maxlen, "&nbsp;", " ");
+    // `&amp;` por ULTIMO: se viesse antes, "&amp;lt;" viraria "<" em vez do
+    // texto "&lt;" que o grupo realmente tem no nome.
+    ReplaceString(texto, maxlen, "&amp;", "&");
+}
+
 /** Do comeco do texto ate a marca. */
 bool Lendas_AteMarca(const char[] texto, const char[] fim, char[] saida, int maxlen)
 {
@@ -403,7 +431,16 @@ bool Lendas_AteMarca(const char[] texto, const char[] fim, char[] saida, int max
         return false;
 
     if (b > maxlen - 1)
+    {
         b = maxlen - 1;
+        /**
+         * Corte seguro em UTF-8: bytes 0x80-0xBF sao CONTINUACAO de um
+         * caractere. Cortar em cima de um deles deixa meio caractere, que o
+         * jogo desenha como lixo. Recua ate o inicio do caractere.
+         */
+        while (b > 0 && (texto[b] & 0xC0) == 0x80)
+            b--;
+    }
 
     strcopy(saida, b + 1, texto);
     return true;
