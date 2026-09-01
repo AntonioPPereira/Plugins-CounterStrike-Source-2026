@@ -85,6 +85,7 @@ ConVar sm_molotov_smoke_radius;
 ConVar sm_molotov_smoke_time;
 ConVar sm_molotov_smoke_consume;
 ConVar sm_molotov_smoke_fade;
+ConVar sm_molotov_smoke_fade_time;
 
 /**
  * Molotovs acesas agora.
@@ -136,7 +137,9 @@ public void OnPluginStart()
     sm_molotov_smoke_consume = CreateConVar("sm_molotov_smoke_consume", "1",
         "A fumaça se desfaz junto com o fogo que ela apagou, como no CS2.", _, true, 0.0, true, 1.0);
     sm_molotov_smoke_fade = CreateConVar("sm_molotov_smoke_fade", "1.5",
-        "Segundos entre apagar o fogo e a fumaça sumir. 0 = na hora.");
+        "Segundos entre apagar o fogo e a fumaça começar a se desfazer. 0 = na hora.");
+    sm_molotov_smoke_fade_time = CreateConVar("sm_molotov_smoke_fade_time", "2.5",
+        "Quanto tempo a fumaça leva se dissipando. 0 = some de uma vez.");
 
     sm_molotov_smoke_time = CreateConVar("sm_molotov_smoke_time", "18",
         "Por quantos segundos a fumaça continua apagando fogo novo jogado nela.");
@@ -828,8 +831,59 @@ void Lendas_ConsumirFumaca(const float pos[3])
         GetEntPropVector(ent, Prop_Send, "m_vecOrigin", ePos);
 
         if (GetVectorDistance(ePos, pos) <= raio)
-            AcceptEntityInput(ent, "Kill");
+            Lendas_DissiparFumaca(ent);
     }
+}
+
+/**
+ * Faz a fumaça se DESFAZER em vez de sumir de um quadro pro outro.
+ *
+ * A `env_particlesmokegrenade` tem dois campos de fade que o cliente usa
+ * pra ir apagando a nuvem: `m_FadeStartTime` e `m_FadeEndTime`. Eles são
+ * contados em segundos DESDE O SPAWN da entidade, não em tempo de jogo —
+ * é por isso que o cálculo desconta o `m_flSpawnTime` antes de somar.
+ * (Confirmado no código do SDK: `SetRelativeFadeTime` faz exatamente essa
+ * conta.)
+ *
+ * Botar o início no instante atual e o fim alguns segundos depois é o que
+ * transforma o "sumiu" em "está acabando".
+ *
+ * Sem os campos, cai no `Kill` de antes: perder o efeito é aceitável,
+ * deixar a fumaça eterna não.
+ */
+void Lendas_DissiparFumaca(int ent)
+{
+    float duracao = sm_molotov_smoke_fade_time.FloatValue;
+
+    bool temCampos = HasEntProp(ent, Prop_Send, "m_flSpawnTime")
+        && HasEntProp(ent, Prop_Send, "m_FadeStartTime")
+        && HasEntProp(ent, Prop_Send, "m_FadeEndTime");
+
+    if (duracao <= 0.0 || !temCampos)
+    {
+        AcceptEntityInput(ent, "Kill");
+        return;
+    }
+
+    float desdeSpawn = GetGameTime() - GetEntPropFloat(ent, Prop_Send, "m_flSpawnTime");
+    if (desdeSpawn < 0.0)
+        desdeSpawn = 0.0;
+
+    SetEntPropFloat(ent, Prop_Send, "m_FadeStartTime", desdeSpawn);
+    SetEntPropFloat(ent, Prop_Send, "m_FadeEndTime", desdeSpawn + duracao);
+
+    // Some do mundo depois de terminar de sumir da tela: uma nuvem
+    // invisivel parada no mapa nao atrapalha ninguem, mas tambem nao
+    // precisa ficar.
+    CreateTimer(duracao + 0.5, Timer_MatarFumaca, EntIndexToEntRef(ent), TIMER_FLAG_NO_MAPCHANGE);
+}
+
+public Action Timer_MatarFumaca(Handle timer, int ref)
+{
+    int ent = EntRefToEntIndex(ref);
+    if (ent > 0 && IsValidEntity(ent))
+        AcceptEntityInput(ent, "Kill");
+    return Plugin_Stop;
 }
 
 public Action Timer_KillFire(Handle timer, int ref)
