@@ -16,8 +16,10 @@
 #include <sourcemod>
 #include <SteamWorks>
 
-#define PLUGIN_VERSION "1.1.0"
+#define PLUGIN_VERSION "1.2.0"
 #define APPID_CSS      240
+/** Onde mora a lista de contas que passam por cima de todas as checagens. */
+#define ARQUIVO_WHITELIST "configs/lsf_whitelist.cfg"
 #define STEAM64_BASE   76561197960265728
 
 ConVar g_cvEnabled;
@@ -31,6 +33,18 @@ ConVar g_cvBlockShared;
 ConVar g_cvRequireOwned;
 ConVar g_cvImmunityFlag;
 ConVar g_cvKickMsg;
+
+/**
+ * SteamID64 -> liberado. Chave presente = passa direto.
+ *
+ * O arquivo ja existia em configs/ desde 2026-08-09, documentado, com
+ * jogadores dentro — mas o codigo que o lia sumiu na copia do Servidor 02
+ * sobre o 01 em 2026-08-29 (o .smx encolheu de 16607 para 13598 bytes). Ou
+ * seja: a whitelist esteve SILENCIOSAMENTE desligada desde entao, e quem
+ * estava nela continuou sendo barrado. Reimplementado seguindo o formato
+ * que o proprio cabecalho do arquivo descreve.
+ */
+StringMap g_hWhitelist;
 
 // Estado por cliente: quantas checagens ainda faltam responder.
 int  g_iPending[MAXPLAYERS + 1];
@@ -128,6 +142,10 @@ public void OnPluginStart()
 
     RegAdminCmd("sm_lsf_check", Cmd_Check, ADMFLAG_BAN,
         "sm_lsf_check <#userid|nome> - roda o filtro manualmente num jogador");
+    RegAdminCmd("sm_lsf_reload", Cmd_Reload, ADMFLAG_BAN,
+        "sm_lsf_reload - recarrega a whitelist sem esperar a troca de mapa");
+
+    Lendas_CarregarWhitelist();
 }
 
 /**
@@ -145,6 +163,12 @@ public void OnPluginStart()
  * que zera a cada troca de mapa e daria "ficou 0 min" pra quem passou a
  * tarde inteira no servidor.
  */
+/** A whitelist recarrega a cada mapa, como o cabecalho do arquivo promete. */
+public void OnMapStart()
+{
+    Lendas_CarregarWhitelist();
+}
+
 public void OnClientDisconnect(int client)
 {
     if (g_iJoinedAt[client] > 0)
@@ -298,7 +322,115 @@ public void OnClientPostAdminCheck(int client)
     if (HasImmunity(client))
         return;
 
+    /**
+     * Whitelist ANTES das checagens, nao depois: o ponto dela e nao gastar
+     * chamada a Steam com quem ja esta liberado, e nao so ignorar o
+     * veredito no fim.
+     */
+    if (EstaNaWhitelist(client))
+    {
+        g_bChecked[client] = true;
+        LogMessage("APROVADO: %L esta na whitelist.", client);
+        WriteRow(client, "aprovado", "whitelist");
+        return;
+    }
+
     RunChecks(client);
+}
+
+public Action Cmd_Reload(int client, int args)
+{
+    int n = Lendas_CarregarWhitelist();
+    ReplyToCommand(client, "[LSF] Whitelist recarregada: %d conta(s).", n);
+    return Plugin_Handled;
+}
+
+bool EstaNaWhitelist(int client)
+{
+    if (g_hWhitelist == null)
+        return false;
+
+    char sSteam64[32];
+    if (!GetClientAuthId(client, AuthId_SteamID64, sSteam64, sizeof(sSteam64)))
+        return false;
+
+    bool liberado;
+    return g_hWhitelist.GetValue(sSteam64, liberado);
+}
+
+/**
+ * Le o arquivo inteiro do zero. Devolve quantas contas entraram.
+ *
+ * Formato, exatamente como o cabecalho do arquivo descreve: um SteamID64
+ * por linha, motivo opcional depois de um espaco, linhas com // ou ;
+ * ignoradas. Linha que nao seja 17 digitos comecando com 765 e descartada
+ * COM AVISO no log — uma whitelist que engole erro em silencio deixa o
+ * admin achando que liberou alguem que continua barrado.
+ */
+int Lendas_CarregarWhitelist()
+{
+    delete g_hWhitelist;
+    g_hWhitelist = new StringMap();
+
+    char caminho[PLATFORM_MAX_PATH];
+    BuildPath(Path_SM, caminho, sizeof(caminho), ARQUIVO_WHITELIST);
+
+    File f = OpenFile(caminho, "r");
+    if (f == null)
+    {
+        LogMessage("Whitelist: %s nao existe — ninguem liberado.", ARQUIVO_WHITELIST);
+        return 0;
+    }
+
+    int n = 0, linhaN = 0;
+    char linha[256];
+
+    while (!f.EndOfFile() && f.ReadLine(linha, sizeof(linha)))
+    {
+        linhaN++;
+        TrimString(linha);
+
+        if (linha[0] == '\0' || linha[0] == ';')
+            continue;
+        if (linha[0] == '/' && linha[1] == '/')
+            continue;
+
+        // O motivo vem depois do primeiro espaco e nao faz parte do ID.
+        int espaco = FindCharInString(linha, ' ');
+        char sId[32];
+        if (espaco == -1)
+            strcopy(sId, sizeof(sId), linha);
+        else
+            strcopy(sId, espaco + 1, linha);
+
+        if (!Lendas_PareceSteam64(sId))
+        {
+            LogError("Whitelist: linha %d ignorada, nao parece SteamID64: \"%s\"", linhaN, sId);
+            continue;
+        }
+
+        g_hWhitelist.SetValue(sId, true);
+        n++;
+    }
+
+    delete f;
+    LogMessage("Whitelist: %d conta(s) liberada(s).", n);
+    return n;
+}
+
+/** 17 digitos comecando com 765 — o mesmo criterio que o arquivo promete. */
+bool Lendas_PareceSteam64(const char[] valor)
+{
+    if (strlen(valor) != 17)
+        return false;
+    if (valor[0] != '7' || valor[1] != '6' || valor[2] != '5')
+        return false;
+
+    for (int i = 0; i < 17; i++)
+        if (!IsCharNumeric(valor[i]))
+            return false;
+
+    return true;
 }
 
 public Action Cmd_Check(int client, int args)
