@@ -137,11 +137,24 @@ public void OnPluginStart()
         "Raio em que a fumaça apaga o fogo.");
     sm_molotov_smoke_consume = CreateConVar("sm_molotov_smoke_consume", "1",
         "A fumaça se desfaz junto com o fogo que ela apagou, como no CS2.", _, true, 0.0, true, 1.0);
-    sm_molotov_smoke_douse = CreateConVar("sm_molotov_smoke_douse", "1.5",
+    /**
+     * Meio segundo, não um e meio.
+     *
+     * 1,5s é tempo de fogo se apagando SOZINHO. Fogo ABAFADO morre rápido,
+     * e o tempo longo dava a impressão de três etapas em fila — fogo
+     * aparecendo, fogo apagando, e só então a fumaça se desfazendo — em vez
+     * de uma coisa só acontecendo.
+     */
+    sm_molotov_smoke_douse = CreateConVar("sm_molotov_smoke_douse", "0.5",
         "Quanto tempo o fogo leva morrendo quando a fumaça o apaga. 0 = some de uma vez.");
     sm_molotov_smoke_fade = CreateConVar("sm_molotov_smoke_fade", "0.0",
         "Espera antes de a fumaça começar a se desfazer. 0 = junto com o fogo.");
-    sm_molotov_smoke_fade_time = CreateConVar("sm_molotov_smoke_fade_time", "2.0",
+    /**
+     * A fumaça leva mais tempo que o fogo de propósito, e agora com folga
+     * maior: uma nuvem que some tão rápido quanto a chama não parece ter
+     * apagado nada — parece que as duas foram removidas ao mesmo tempo.
+     */
+    sm_molotov_smoke_fade_time = CreateConVar("sm_molotov_smoke_fade_time", "3.0",
         "Quanto tempo a fumaça leva se dissipando. 0 = some de uma vez.");
 
     sm_molotov_smoke_time = CreateConVar("sm_molotov_smoke_time", "18",
