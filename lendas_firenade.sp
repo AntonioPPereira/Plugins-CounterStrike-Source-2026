@@ -83,6 +83,8 @@ ConVar sm_molotov_price;
 ConVar sm_molotov_smoke;
 ConVar sm_molotov_smoke_radius;
 ConVar sm_molotov_smoke_time;
+ConVar sm_molotov_smoke_consume;
+ConVar sm_molotov_smoke_fade;
 
 /**
  * Molotovs acesas agora.
@@ -131,6 +133,11 @@ public void OnPluginStart()
         "Fumaça apaga a molotov, como no CS:GO/CS2.", _, true, 0.0, true, 1.0);
     sm_molotov_smoke_radius = CreateConVar("sm_molotov_smoke_radius", "170.0",
         "Raio em que a fumaça apaga o fogo.");
+    sm_molotov_smoke_consume = CreateConVar("sm_molotov_smoke_consume", "1",
+        "A fumaça se desfaz junto com o fogo que ela apagou, como no CS2.", _, true, 0.0, true, 1.0);
+    sm_molotov_smoke_fade = CreateConVar("sm_molotov_smoke_fade", "1.5",
+        "Segundos entre apagar o fogo e a fumaça sumir. 0 = na hora.");
+
     sm_molotov_smoke_time = CreateConVar("sm_molotov_smoke_time", "18",
         "Por quantos segundos a fumaça continua apagando fogo novo jogado nela.");
 
@@ -522,6 +529,11 @@ public Action Event_SmokeDetonate(Event event, const char[] name, bool dontBroad
         if (sm_molotov_smoke.BoolValue && Lendas_DentroDeFumaca(pos))
         {
             EmitSoundToAll(SOUND_EXPLODE, SOUND_FROM_WORLD, SNDCHAN_AUTO, SNDLEVEL_NORMAL, SND_NOFLAGS, 0.6, SNDPITCH_NORMAL, -1, pos);
+
+            // Gastou a fumaça pra abafar o fogo — vale nos dois sentidos.
+            if (sm_molotov_smoke_consume.BoolValue)
+                Lendas_ConsumirFumaca(pos);
+
             return Plugin_Handled;
         }
 
@@ -724,12 +736,100 @@ void Lendas_ApagarFogoPerto(const float pos[3])
         if (GetVectorDistance(fogoPos, pos) > raioChamas)
             continue;
 
+        /**
+         * O som ANTES do Kill.
+         *
+         * O `SOUND_FIRE` é um loop preso à entidade do centro. Matar a
+         * entidade não interrompe o loop no cliente — ele continua tocando
+         * num fogo que não existe mais. O `Timer_KillFire` já fazia isso
+         * certo; a primeira versão de apagar por fumaça esqueceu, e o
+         * resultado foi som de fogo em fumaça vazia.
+         */
+        StopSound(ent, SNDCHAN_AUTO, SOUND_FIRE);
         AcceptEntityInput(ent, "Extinguish");
         AcceptEntityInput(ent, "Kill");
     }
 
     if (apagadas > 0)
+    {
         EmitSoundToAll(SOUND_EXPLODE, SOUND_FROM_WORLD, SNDCHAN_AUTO, SNDLEVEL_NORMAL, SND_NOFLAGS, 0.5, SNDPITCH_NORMAL, -1, pos);
+
+        /**
+         * A fumaça se gasta ao apagar o fogo, como no CS2 — os dois somem
+         * juntos em vez de sobrar uma fumaça inteira sobre o chão limpo.
+         *
+         * Com um respiro antes: sumir no mesmo instante lê como bug de
+         * renderização. Um segundo e meio depois lê como a fumaça tendo
+         * feito o trabalho e se acabado nele.
+         */
+        if (sm_molotov_smoke_consume.BoolValue)
+        {
+            float espera = sm_molotov_smoke_fade.FloatValue;
+            if (espera <= 0.0)
+            {
+                Lendas_ConsumirFumaca(pos);
+            }
+            else
+            {
+                DataPack dp;
+                CreateDataTimer(espera, Timer_ConsumirFumaca, dp, TIMER_FLAG_NO_MAPCHANGE);
+                dp.WriteFloat(pos[0]);
+                dp.WriteFloat(pos[1]);
+                dp.WriteFloat(pos[2]);
+            }
+        }
+    }
+}
+
+public Action Timer_ConsumirFumaca(Handle timer, DataPack dp)
+{
+    dp.Reset();
+    float pos[3];
+    pos[0] = dp.ReadFloat();
+    pos[1] = dp.ReadFloat();
+    pos[2] = dp.ReadFloat();
+
+    Lendas_ConsumirFumaca(pos);
+    return Plugin_Stop;
+}
+
+/**
+ * Desfaz a fumaça que acabou de apagar um fogo.
+ *
+ * Some do mundo (a entidade de partícula) E do registro: se ficasse no
+ * registro, continuaria impedindo molotov nova de pegar num lugar onde já
+ * não há fumaça nenhuma — bloqueio invisível, que é o pior tipo.
+ */
+void Lendas_ConsumirFumaca(const float pos[3])
+{
+    float raio = sm_molotov_smoke_radius.FloatValue;
+
+    for (int i = 0; i < MAX_FUMACAS; i++)
+    {
+        if (!g_aFumacas[i].ativa)
+            continue;
+        if (GetVectorDistance(g_aFumacas[i].pos, pos) <= raio)
+            g_aFumacas[i].ativa = false;
+    }
+
+    char cls[64];
+    for (int ent = MaxClients + 1; ent < GetMaxEntities(); ent++)
+    {
+        if (!IsValidEntity(ent))
+            continue;
+        if (!GetEdictClassname(ent, cls, sizeof(cls)))
+            continue;
+        if (!StrEqual(cls, "env_particlesmokegrenade"))
+            continue;
+
+        float ePos[3];
+        if (!HasEntProp(ent, Prop_Send, "m_vecOrigin"))
+            continue;
+        GetEntPropVector(ent, Prop_Send, "m_vecOrigin", ePos);
+
+        if (GetVectorDistance(ePos, pos) <= raio)
+            AcceptEntityInput(ent, "Kill");
+    }
 }
 
 public Action Timer_KillFire(Handle timer, int ref)
