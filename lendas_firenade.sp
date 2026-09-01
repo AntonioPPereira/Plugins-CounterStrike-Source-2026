@@ -86,6 +86,7 @@ ConVar sm_molotov_smoke_time;
 ConVar sm_molotov_smoke_consume;
 ConVar sm_molotov_smoke_fade;
 ConVar sm_molotov_smoke_fade_time;
+ConVar sm_molotov_smoke_douse;
 
 /**
  * Molotovs acesas agora.
@@ -136,9 +137,11 @@ public void OnPluginStart()
         "Raio em que a fumaça apaga o fogo.");
     sm_molotov_smoke_consume = CreateConVar("sm_molotov_smoke_consume", "1",
         "A fumaça se desfaz junto com o fogo que ela apagou, como no CS2.", _, true, 0.0, true, 1.0);
-    sm_molotov_smoke_fade = CreateConVar("sm_molotov_smoke_fade", "1.5",
-        "Segundos entre apagar o fogo e a fumaça começar a se desfazer. 0 = na hora.");
-    sm_molotov_smoke_fade_time = CreateConVar("sm_molotov_smoke_fade_time", "2.5",
+    sm_molotov_smoke_douse = CreateConVar("sm_molotov_smoke_douse", "1.5",
+        "Quanto tempo o fogo leva morrendo quando a fumaça o apaga. 0 = some de uma vez.");
+    sm_molotov_smoke_fade = CreateConVar("sm_molotov_smoke_fade", "0.0",
+        "Espera antes de a fumaça começar a se desfazer. 0 = junto com o fogo.");
+    sm_molotov_smoke_fade_time = CreateConVar("sm_molotov_smoke_fade_time", "2.0",
         "Quanto tempo a fumaça leva se dissipando. 0 = some de uma vez.");
 
     sm_molotov_smoke_time = CreateConVar("sm_molotov_smoke_time", "18",
@@ -740,17 +743,28 @@ void Lendas_ApagarFogoPerto(const float pos[3])
             continue;
 
         /**
-         * O som ANTES do Kill.
+         * O `Extinguish` do `env_fire` aceita um TEMPO: quantos segundos a
+         * chama leva morrendo. Matar a entidade na hora desperdiçava isso e
+         * fazia o fogo piscar pra fora enquanto a fumaça ainda estava
+         * inteira — os dois eventos não pareciam o mesmo evento.
          *
-         * O `SOUND_FIRE` é um loop preso à entidade do centro. Matar a
-         * entidade não interrompe o loop no cliente — ele continua tocando
-         * num fogo que não existe mais. O `Timer_KillFire` já fazia isso
-         * certo; a primeira versão de apagar por fumaça esqueceu, e o
-         * resultado foi som de fogo em fumaça vazia.
+         * Agora a chama diminui pelo mesmo tempo em que a fumaça se
+         * dissipa, e o `Kill` fica pro fim (o `Timer_KillFire` também para
+         * o som de loop, que não pode sobreviver à entidade).
          */
-        StopSound(ent, SNDCHAN_AUTO, SOUND_FIRE);
-        AcceptEntityInput(ent, "Extinguish");
-        AcceptEntityInput(ent, "Kill");
+        float morte = sm_molotov_smoke_douse.FloatValue;
+        if (morte <= 0.0)
+        {
+            StopSound(ent, SNDCHAN_AUTO, SOUND_FIRE);
+            AcceptEntityInput(ent, "Extinguish");
+            AcceptEntityInput(ent, "Kill");
+        }
+        else
+        {
+            SetVariantFloat(morte);
+            AcceptEntityInput(ent, "Extinguish");
+            CreateTimer(morte + 0.3, Timer_KillFire, EntIndexToEntRef(ent), TIMER_FLAG_NO_MAPCHANGE);
+        }
     }
 
     if (apagadas > 0)
