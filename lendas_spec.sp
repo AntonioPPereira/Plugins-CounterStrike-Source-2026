@@ -4,7 +4,7 @@
 #include <sourcemod>
 #include <sdktools>
 
-#define PLUGIN_VERSION "1.0.0"
+#define PLUGIN_VERSION "1.1.0"
 
 /**
  * Fecha o atalho de "ir pro spec e voltar limpo".
@@ -48,6 +48,12 @@ public Plugin myinfo =
 ConVar g_CvarDinheiro;
 ConVar g_CvarDominancia;
 ConVar g_CvarDebug;
+ConVar g_CvarZoar;
+ConVar g_CvarSom;
+ConVar g_CvarMulta;
+
+/** Quantas vezes cada um tentou o truque neste mapa. Alimenta a zoação. */
+int g_iTentativas[MAXPLAYERS + 1];
 
 /** Dinheiro no instante em que saiu de um time jogável. -1 = sem foto. */
 int g_iDinheiro[MAXPLAYERS + 1];
@@ -72,6 +78,12 @@ public void OnPluginStart()
         "Devolve as relações de dominância ao voltar do espectador.", _, true, 0.0, true, 1.0);
     g_CvarDebug = CreateConVar("lendas_spec_debug", "0",
         "Registra no log cada foto e cada devolução.", _, true, 0.0, true, 1.0);
+    g_CvarZoar = CreateConVar("lendas_spec_zoar", "1",
+        "Anuncia no chat quem tentou fugir da dominância indo pro espectador.", _, true, 0.0, true, 1.0);
+    g_CvarSom = CreateConVar("lendas_spec_som", "quake/standard/humiliation.mp3",
+        "Som tocado na zoação. Vazio = sem som.");
+    g_CvarMulta = CreateConVar("lendas_spec_multa", "0",
+        "Multa em dólares por tentativa. 0 = sem multa, só vergonha.", _, true, 0.0, true, 16000.0);
 
     // O menu de times manda `jointeam <n>`; alguns clientes mandam `spectate`.
     AddCommandListener(Lendas_AntesDeTrocar, "jointeam");
@@ -84,11 +96,32 @@ public void OnPluginStart()
 
 public void OnMapStart()
 {
+    // O som da zoação precisa estar precacheado e na lista de download. O
+    // quakesounds já faz isso pros sons dele, mas repetir não custa e cobre
+    // o caso de alguém trocar o som por outro na cvar.
+    char som[PLATFORM_MAX_PATH];
+    g_CvarSom.GetString(som, sizeof(som));
+    if (som[0] != EOS)
+    {
+        char caminho[PLATFORM_MAX_PATH];
+        Format(caminho, sizeof(caminho), "sound/%s", som);
+        if (FileExists(caminho, true))
+        {
+            PrecacheSound(som, true);
+            AddFileToDownloadsTable(caminho);
+        }
+        else
+        {
+            LogError("Som da zoação não existe: %s. A zoação sai sem som.", caminho);
+        }
+    }
+
     // Mapa novo, partida nova: nenhuma foto sobrevive. Devolver dominância
     // de um mapa anterior seria inventar história.
     for (int i = 1; i <= MaxClients; i++)
     {
         Lendas_Esquecer(i);
+        g_iTentativas[i] = 0;
     }
 }
 
@@ -254,6 +287,8 @@ public void Lendas_DevolverNoFrame(any userid)
         }
     }
 
+    Lendas_Zoar(client);
+
     if (g_CvarDebug.BoolValue)
     {
         LogMessage("devolvido a %N: dinheiro=%d dominancia=%s",
@@ -263,4 +298,94 @@ public void Lendas_DevolverNoFrame(any userid)
     // A foto se gasta ao ser usada: uma segunda volta sem ter saído de novo
     // devolveria um estado velho.
     g_bTemFoto[client] = false;
+}
+
+/**
+ * A parte que dói: humilhação pública.
+ *
+ * Só dispara em quem ESTAVA sendo dominado na hora em que foi pro
+ * espectador. Quem foi por motivo legítimo — travou, telefone tocou, tanto
+ * faz — não passa vergonha nenhuma. Sem essa checagem o plugin acusaria
+ * inocente, que é pior do que não acusar ninguém.
+ *
+ * A multa é opcional e vem desligada. Num mix, tirar dinheiro de alguém
+ * castiga o time inteiro pelo erro de um; a vergonha, não.
+ */
+void Lendas_Zoar(int client)
+{
+    if (!g_CvarZoar.BoolValue || g_iTemNetprops != 1)
+    {
+        return;
+    }
+
+    // Quem o dominava? Se ninguém, não houve fuga nenhuma.
+    int dominadores = 0;
+    int primeiro = -1;
+    for (int i = 1; i <= MaxClients; i++)
+    {
+        if (g_bDominado[client][i] && IsClientInGame(i))
+        {
+            dominadores++;
+            if (primeiro == -1)
+            {
+                primeiro = i;
+            }
+        }
+    }
+
+    if (dominadores == 0)
+    {
+        return;
+    }
+
+    g_iTentativas[client]++;
+    int vezes = g_iTentativas[client];
+
+    char extra[64];
+    if (vezes > 1)
+    {
+        Format(extra, sizeof(extra), " Já é a \x04%dª vez\x01.", vezes);
+    }
+    else
+    {
+        extra = "";
+    }
+
+    if (dominadores == 1)
+    {
+        PrintToChatAll("\x04[LENDAS]\x01 \x03%N\x01 correu pro espectador pra fugir da dominância de \x03%N\x01. Voltou do mesmo jeito.%s",
+            client, primeiro, extra);
+    }
+    else
+    {
+        PrintToChatAll("\x04[LENDAS]\x01 \x03%N\x01 correu pro espectador pra fugir de \x03%d\x01 dominâncias. Voltou com todas.%s",
+            client, dominadores, extra);
+    }
+
+    // Quem domina merece saber, e é essa mensagem que arranca o "kkkk" no mic.
+    for (int i = 1; i <= MaxClients; i++)
+    {
+        if (g_bDominado[client][i] && IsClientInGame(i))
+        {
+            PrintToChat(i, "\x04[LENDAS]\x01 \x03%N\x01 tentou fugir da SUA dominância. Continua sendo seu.", client);
+        }
+    }
+
+    PrintCenterText(client, "Não colou.");
+
+    char som[PLATFORM_MAX_PATH];
+    g_CvarSom.GetString(som, sizeof(som));
+    if (som[0] != EOS)
+    {
+        EmitSoundToAll(som);
+    }
+
+    int multa = g_CvarMulta.IntValue;
+    if (multa > 0)
+    {
+        int agora = GetEntProp(client, Prop_Send, "m_iAccount");
+        int novo = agora - multa;
+        SetEntProp(client, Prop_Send, "m_iAccount", novo < 0 ? 0 : novo);
+        PrintToChat(client, "\x04[LENDAS]\x01 Multa de \x03$%d\x01 pela tentativa.", multa);
+    }
 }
