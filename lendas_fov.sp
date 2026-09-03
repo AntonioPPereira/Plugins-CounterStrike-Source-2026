@@ -6,7 +6,7 @@
 #include <clientprefs>
 #include <sdkhooks>
 
-#define PLUGIN_VERSION "1.4.0"
+#define PLUGIN_VERSION "1.5.4"
 
 /**
  * FOV escolhido pelo jogador, guardado entre sessões.
@@ -92,6 +92,7 @@ public void OnPluginStart()
     g_hCookie = RegClientCookie("lendas_fov", "FOV escolhido pelo jogador", CookieAccess_Private);
 
     RegConsoleCmd("sm_fov", Comando_Fov, "Escolhe seu campo de visão. Sem valor, abre o menu.");
+    RegConsoleCmd("sm_fovteste", Comando_FovTeste, "Diagnostico: sm_fovteste <m_iFOV> [m_iDefaultFOV]. Aplica so em voce.");
     HookEvent("player_spawn", Evento_Spawn);
 
     AutoExecConfig(true, "lendas_fov");
@@ -111,45 +112,11 @@ public void OnClientPutInServer(int client)
 {
     g_iEscolhido[client] = 0;
     SDKHook(client, SDKHook_WeaponSwitchPost, Lendas_TrocaDeArma);
-    SDKHook(client, SDKHook_PostThinkPost, Lendas_PosPensar);
 }
 
 public void OnClientDisconnect(int client)
 {
     g_iEscolhido[client] = 0;
-}
-
-/**
- * Desfaz, quadro a quadro, o esconde-esconde do jogo.
- *
- * Roda a cada tick por jogador, então sai cedo na primeira linha para quem
- * não escolheu FOV — que é a maioria.
- */
-public void Lendas_PosPensar(int client)
-{
-    if (g_iEscolhido[client] == 0 || !IsPlayerAlive(client))
-    {
-        return;
-    }
-
-    // FOV diferente do nosso = a arma está com zoom de verdade. Nesse caso a
-    // luneta DEVE esconder o modelo, e forçar aqui estragaria a AWP.
-    if (GetEntProp(client, Prop_Send, "m_iFOV") != g_iEscolhido[client])
-    {
-        return;
-    }
-
-    int viewmodel = GetEntPropEnt(client, Prop_Send, "m_hViewModel");
-    if (viewmodel <= 0 || !IsValidEdict(viewmodel))
-    {
-        return;
-    }
-
-    int efeitos = GetEntProp(viewmodel, Prop_Send, "m_fEffects");
-    if (efeitos & EF_NODRAW)
-    {
-        SetEntProp(viewmodel, Prop_Send, "m_fEffects", efeitos & ~EF_NODRAW);
-    }
 }
 
 /**
@@ -236,6 +203,89 @@ public Action Comando_Fov(int client, int args)
     GetCmdArg(1, arg, sizeof(arg));
     Lendas_Definir(client, StringToInt(arg), minimo, maximo);
     return Plugin_Handled;
+}
+
+/**
+ * Diagnóstico. Escreve o FOV SÓ em quem chamou e registra o que o jogo fez.
+ *
+ * O segundo argumento é o `m_iDefaultFOV`, que por muito tempo foi escrito
+ * sempre igual ao `m_iFOV`. A compensação de viewmodel do Source só age
+ * quando os dois DIFEREM, então poder separá-los é o que permite varrer as
+ * combinações sem recompilar a cada tentativa.
+ *
+ * Sai no console de quem pediu e no log do servidor — o log é o que permite
+ * ler o resultado de fora, sem pedir copia-e-cola.
+ */
+public Action Comando_FovTeste(int client, int args)
+{
+    if (client <= 0 || !IsClientInGame(client) || !IsPlayerAlive(client))
+    {
+        return Plugin_Handled;
+    }
+
+    if (args >= 1)
+    {
+        char arg[8];
+        GetCmdArg(1, arg, sizeof(arg));
+        int fov = StringToInt(arg);
+
+        int padrao = fov;
+        if (args >= 2)
+        {
+            char arg2[8];
+            GetCmdArg(2, arg2, sizeof(arg2));
+            padrao = StringToInt(arg2);
+        }
+
+        SetEntProp(client, Prop_Send, "m_iDefaultFOV", padrao);
+        SetEntProp(client, Prop_Send, "m_iFOV", fov);
+        g_iEscolhido[client] = fov;
+        Lendas_Diag(client, "escrevi m_iFOV=%d e m_iDefaultFOV=%d", fov, padrao);
+    }
+
+    Lendas_Diag(client, "===== estado do FOV =====");
+    Lendas_Diag(client, "m_iFOV .......... %d", GetEntProp(client, Prop_Send, "m_iFOV"));
+    Lendas_Diag(client, "m_iDefaultFOV ... %d", GetEntProp(client, Prop_Send, "m_iDefaultFOV"));
+
+    // Netprops de zoom que PODEM não existir. Perguntar antes de ler é o que
+    // evita repetir o erro do m_bIsScoped no lendas_noscope.
+    char talvez[3][20] = { "m_hZoomOwner", "m_bResumeZoom", "m_iLastZoom" };
+    for (int i = 0; i < sizeof(talvez); i++)
+    {
+        if (HasEntProp(client, Prop_Send, talvez[i]))
+        {
+            Lendas_Diag(client, "%s = %d", talvez[i], GetEntProp(client, Prop_Send, talvez[i]));
+        }
+    }
+
+    // TODOS os slots, não só o zero: o lendas_skins põe a skin num viewmodel
+    // separado e esconde o de baixo. Olhar só o slot 0 conta meia história.
+    int total = GetEntPropArraySize(client, Prop_Send, "m_hViewModel");
+    Lendas_Diag(client, "slots de viewmodel: %d", total);
+    for (int i = 0; i < total; i++)
+    {
+        int vm = GetEntPropEnt(client, Prop_Send, "m_hViewModel", i);
+        if (vm <= 0)
+        {
+            continue;
+        }
+        int efeitos = GetEntProp(vm, Prop_Send, "m_fEffects");
+        char modelo[128];
+        GetEntPropString(vm, Prop_Data, "m_ModelName", modelo, sizeof(modelo));
+        Lendas_Diag(client, "  slot %d: ent=%d m_fEffects=%d EF_NODRAW=%s modelo=%s",
+            i, vm, efeitos, (efeitos & EF_NODRAW) ? "SIM" : "nao", modelo);
+    }
+    Lendas_Diag(client, "=========================");
+    return Plugin_Handled;
+}
+
+/** Sai no console de quem pediu E no log do servidor, pra eu ler de fora. */
+void Lendas_Diag(int client, const char[] formato, any ...)
+{
+    char linha[256];
+    VFormat(linha, sizeof(linha), formato, 3);
+    PrintToConsole(client, "%s", linha);
+    LogMessage("[fovteste] %s", linha);
 }
 
 /** Aplica uma escolha, venha ela do menu ou do comando digitado. */
@@ -412,8 +462,12 @@ void Lendas_AplicarGuardado(int client)
 void Lendas_Escrever(int client, int fov)
 {
     SetEntProp(client, Prop_Send, "m_iDefaultFOV", fov);
-    SetEntProp(client, Prop_Send, "m_iFOV", fov);
-    g_iEscolhido[client] = fov;
+
+    // m_iFOV em ZERO no caminho normal: escrever esse netprop abre o mundo
+    // mas apaga a arma, e a investigação disso vive no sm_fovteste, que
+    // afeta só quem chama. Ninguém joga com arma invisível por engano.
+    SetEntProp(client, Prop_Send, "m_iFOV", 0);
+    g_iEscolhido[client] = 0;
 }
 
 /** Devolve o jogador ao estado natural: sem FOV nosso, sem forçar desenho. */
