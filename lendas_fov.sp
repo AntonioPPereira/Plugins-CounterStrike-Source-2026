@@ -6,7 +6,7 @@
 #include <clientprefs>
 #include <sdkhooks>
 
-#define PLUGIN_VERSION "1.2.0"
+#define PLUGIN_VERSION "1.3.0"
 
 /**
  * FOV escolhido pelo jogador, guardado entre sessões.
@@ -22,15 +22,12 @@
  * 3. metade dele é Team Fortress 2 (`TF2_OnConditionAdded`, `TFCond_Zoomed`),
  *    inútil aqui.
  *
- * O que ele faz e este também faz: `m_iFOV` e `m_iDefaultFOV` recebem o valor
- * escolhido, guardado num cookie do clientprefs e reaplicado a cada spawn.
+ * O valor escolhido vai pro `m_iDefaultFOV`, fica guardado num cookie do
+ * clientprefs e é reposto a cada spawn e a cada troca de arma.
  *
- * CONVERSA COM O lendas_noscope: aquele plugin decide se o tiro saiu com mira
- * comparando o `m_iFOV` do momento com o FOV padrão do jogador. Por isso os
- * DOIS valores são escritos aqui, sempre juntos e sempre iguais — o zoom real
- * da AWP e da scout desce abaixo do padrão e continua sendo detectado. Escrever
- * só o `m_iFOV` faria todo mundo com FOV abaixo de 90 parecer permanentemente
- * com mira. Ver `IsClientScoped` no lendas_noscope 1.2.0.
+ * O `m_iFOV` NÃO é escrito — ver `Lendas_Escrever`, que explica por quê. É a
+ * diferença central em relação ao plugin do McKay, e a razão de as armas
+ * ficarem invisíveis com ele neste jogo.
  */
 
 public Plugin myinfo =
@@ -328,15 +325,28 @@ void Lendas_AplicarGuardado(int client)
 }
 
 /**
- * Os dois netprops, sempre juntos.
+ * Só o `m_iDefaultFOV`. O `m_iFOV` fica em ZERO, de propósito.
  *
- * `m_iFOV` é o que se vê agora; `m_iDefaultFOV` é para onde o jogo volta ao
- * sair da mira. Escrever só o primeiro faria o FOV sumir no primeiro zoom.
+ * `m_iFOV` diferente de zero não quer dizer "este é o meu FOV" — quer dizer
+ * "estou com zoom", e é nesse estado que o CS:S esconde o modelo da arma,
+ * exatamente como acontece ao olhar pela luneta da AWP. Escrever os dois
+ * (o que o plugin do Dr. McKay faz) deixa todo mundo de mãos vazias.
+ *
+ * Zero significa "sem zoom, use o padrão", e o jogo calcula a visão como
+ * `m_iFOV == 0 ? m_iDefaultFOV : m_iFOV`. Então mexer só no padrão dá o FOV
+ * escolhido com a arma à vista.
+ *
+ * De quebra, o `lendas_noscope` volta a acertar sozinho: fora da mira o
+ * `m_iFOV` é 0 e não passa no teste dele; com a mira aberta o jogo escreve
+ * 40 ou 15, abaixo de qualquer padrão, e o tiro conta como com mira.
+ *
+ * O zero é ESCRITO, não só presumido: quem usou a versão anterior ficou com
+ * um valor preso aí, e sem esta linha continuaria sem ver a arma.
  */
 void Lendas_Escrever(int client, int fov)
 {
-    SetEntProp(client, Prop_Send, "m_iFOV", fov);
     SetEntProp(client, Prop_Send, "m_iDefaultFOV", fov);
+    SetEntProp(client, Prop_Send, "m_iFOV", 0);
 }
 
 int Lendas_FovAtual(int client)
