@@ -6,7 +6,7 @@
 #include <sdkhooks>
 #include <clientprefs>
 
-#define PLUGIN_VERSION "1.1.0"
+#define PLUGIN_VERSION "1.2.0"
 
 /**
  * Posição da arma na tela, escolhida por jogador.
@@ -39,24 +39,28 @@ public Plugin myinfo =
     url = "https://www.lendascss.com.br"
 };
 
-/** O padrão do CS:S. Referência dos rótulos e valor de segurança. */
-#define POSICAO_NORMAL 90
-
 /**
- * O quanto se PODE descer, no limite.
+ * O padrão do CS:S, e o CHÃO da escala — fronteira do engine, não escolha.
  *
- * Abaixo do normal a arma se afasta — mas num teste com 70 ela sumiu de vez,
- * e eu não sei onde exatamente está a fronteira. Por isso o chão de verdade
- * é a cvar `lendas_viewmodel_min`, que sai de fábrica em 90 (nenhum degrau
- * de afastar) e só desce até aqui. Assim dá pra procurar o limite em jogo,
- * um valor por vez, sem recompilar e sem arriscar deixar o servidor inteiro
- * com arma invisível.
+ * Testado em jogo, e o comportamento é ASSIMÉTRICO:
+ *
+ * - ACIMA de 90 o cliente recusa alargar a visão (trava em 90), então só a
+ *   câmera do viewmodel se desloca. Arma mais perto, mundo intacto. É disso
+ *   que o plugin vive;
+ * - ABAIXO de 90 o cliente aceita, porque estreitar é zoom. O mundo fecha,
+ *   entra o estado de mira e a arma some — mesmo mecanismo que impede o FOV
+ *   de funcionar aqui.
+ *
+ * Por isso não existe degrau de "afastar", e não é questão de achar o valor
+ * certo: qualquer coisa abaixo de 90 dá zoom e apaga a arma. Quem quiser a
+ * arma mais longe precisa de um pacote de modelos com a geometria
+ * reposicionada, instalado no cliente — o servidor está em `sv_pure 0` e
+ * aceita.
  */
-#define POSICAO_PISO 70
+#define POSICAO_NORMAL 90
 
 ConVar g_CvarEnabled;
 ConVar g_CvarMax;
-ConVar g_CvarMin;
 
 Handle g_hCookie;
 
@@ -69,9 +73,6 @@ public void OnPluginStart()
         "Liga o comando !arma. 0 = desligado, 1 = ligado.", _, true, 0.0, true, 1.0);
     g_CvarMax = CreateConVar("lendas_viewmodel_max", "110",
         "O quanto a arma pode chegar perto. 90 = sem ajuste nenhum.", _, true, 90.0, true, 130.0);
-    g_CvarMin = CreateConVar("lendas_viewmodel_min", "90",
-        "O quanto a arma pode se afastar. 90 = nenhum degrau de afastar. CUIDADO: valores baixos podem deixar a arma invisível.",
-        _, true, float(POSICAO_PISO), true, 90.0);
 
     g_hCookie = RegClientCookie("lendas_viewmodel", "Posição da arma escolhida", CookieAccess_Private);
 
@@ -174,7 +175,7 @@ void Lendas_Definir(int client, int valor)
     int teto = Lendas_Teto();
 
     // Fora da faixa cai no normal, nunca num valor que o servidor recusaria.
-    if (valor < Lendas_Chao() || valor > teto)
+    if (valor < POSICAO_NORMAL || valor > teto)
     {
         valor = POSICAO_NORMAL;
     }
@@ -207,20 +208,6 @@ void Lendas_Rotulo(int valor, int teto, char[] saida, int tamanho)
         return;
     }
 
-    if (valor < POSICAO_NORMAL)
-    {
-        int faixaLonge = POSICAO_NORMAL - Lendas_Chao();
-        int passoLonge = (faixaLonge > 0) ? (((POSICAO_NORMAL - valor) * 3 - 1) / faixaLonge) : 0;
-
-        switch (passoLonge)
-        {
-            case 0:  strcopy(saida, tamanho, "um pouco mais longe");
-            case 1:  strcopy(saida, tamanho, "mais longe");
-            default: strcopy(saida, tamanho, "bem longe");
-        }
-        return;
-    }
-
     int faixa = teto - POSICAO_NORMAL;
     int degrau = (faixa > 0) ? (((valor - POSICAO_NORMAL) * 4 - 1) / faixa) : 0;
 
@@ -239,13 +226,7 @@ int Lendas_Teto()
     return (teto < POSICAO_NORMAL) ? POSICAO_NORMAL : teto;
 }
 
-int Lendas_Chao()
-{
-    int chao = g_CvarMin.IntValue;
-    if (chao > POSICAO_NORMAL) chao = POSICAO_NORMAL;
-    if (chao < POSICAO_PISO) chao = POSICAO_PISO;
-    return chao;
-}
+
 
 void Lendas_AbrirMenu(int client)
 {
@@ -256,7 +237,7 @@ void Lendas_AbrirMenu(int client)
     menu.SetTitle("Posição da arma\nEscolha e veja na hora");
 
     char info[8], rotulo[32], item[64];
-    for (int valor = Lendas_Chao(); valor <= teto; valor += 5)
+    for (int valor = POSICAO_NORMAL; valor <= teto; valor += 5)
     {
         IntToString(valor, info, sizeof(info));
         Lendas_Rotulo(valor, teto, rotulo, sizeof(rotulo));
@@ -309,7 +290,7 @@ void Lendas_AplicarGuardado(int client)
 
     // Reconferido a cada spawn: se o servidor apertar o teto depois, quem
     // tinha um valor fora dele volta ao normal em vez de herdar privilégio.
-    if (valor < Lendas_Chao() || valor > Lendas_Teto())
+    if (valor < POSICAO_NORMAL || valor > Lendas_Teto())
     {
         valor = POSICAO_NORMAL;
     }
