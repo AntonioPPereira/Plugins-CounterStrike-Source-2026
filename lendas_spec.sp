@@ -4,7 +4,7 @@
 #include <sourcemod>
 #include <sdktools>
 
-#define PLUGIN_VERSION "1.2.0"
+#define PLUGIN_VERSION "1.3.0"
 
 /**
  * Fecha o atalho de "ir pro spec e voltar limpo".
@@ -91,8 +91,8 @@ public void OnPluginStart()
     g_CvarMulta = CreateConVar("lendas_spec_multa", "1500",
         "Multa em dólares. Só a partir da tentativa seguinte à tolerância. 0 = sem multa.",
         _, true, 0.0, true, 16000.0);
-    g_CvarTolerancia = CreateConVar("lendas_spec_tolerancia", "1",
-        "Quantas idas ao espectador são perdoadas antes de multar. A primeira pode ser motivo de verdade.",
+    g_CvarTolerancia = CreateConVar("lendas_spec_tolerancia", "0",
+        "Quantas idas ao espectador são perdoadas antes de multar. 0 = pega já na primeira.",
         _, true, 0.0, true, 10.0);
     g_CvarJanela = CreateConVar("lendas_spec_janela", "180",
         "Segundos no espectador para ainda contar como fuga. Quem fica mais que isso saiu por motivo real e não é cobrado.",
@@ -375,12 +375,14 @@ void Lendas_Zoar(int client)
     int vezes = g_iTentativas[client];
 
     /**
-     * FREIO 2: a primeira vez é de graça.
+     * FREIO 2: perdão configurável, DESLIGADO por decisão do servidor.
      *
-     * Ninguém apanha por uma ocorrência isolada. Uma vez é acidente, motivo
-     * real, ou curiosidade; repetir no mesmo mapa é padrão. Como o plugin já
-     * devolve tudo, o espertinho não ganha nada esperando a segunda — só a
-     * conta.
+     * Em `0` a cobrança vem já na primeira. Quem quiser afrouxar sobe a cvar:
+     * em `1`, a primeira do mapa recebe só um aviso no privado.
+     *
+     * Note que este freio protege quem errou uma vez; quem saiu por motivo
+     * REAL continua protegido pelo freio da janela de tempo acima, que não
+     * depende desta cvar.
      */
     if (vezes <= g_CvarTolerancia.IntValue)
     {
