@@ -5,7 +5,7 @@
 #include <sdktools>
 #include <clientprefs>
 
-#define PLUGIN_VERSION "1.0.0"
+#define PLUGIN_VERSION "1.1.0"
 
 /**
  * FOV escolhido pelo jogador, guardado entre sessões.
@@ -44,6 +44,7 @@ public Plugin myinfo =
 ConVar g_CvarEnabled;
 ConVar g_CvarMin;
 ConVar g_CvarMax;
+ConVar g_CvarPasso;
 
 Handle g_hCookie;
 
@@ -61,10 +62,12 @@ public void OnPluginStart()
         "Menor FOV que o jogador pode escolher.", _, true, 20.0, true, 180.0);
     g_CvarMax = CreateConVar("lendas_fov_max", "110",
         "Maior FOV que o jogador pode escolher.", _, true, 20.0, true, 180.0);
+    g_CvarPasso = CreateConVar("lendas_fov_passo", "5",
+        "De quanto em quanto o menu oferece os valores.", _, true, 1.0, true, 50.0);
 
     g_hCookie = RegClientCookie("lendas_fov", "FOV escolhido pelo jogador", CookieAccess_Private);
 
-    RegConsoleCmd("sm_fov", Comando_Fov, "Escolhe seu campo de visão. Sem valor, mostra o atual.");
+    RegConsoleCmd("sm_fov", Comando_Fov, "Escolhe seu campo de visão. Sem valor, abre o menu.");
     HookEvent("player_spawn", Evento_Spawn);
 
     AutoExecConfig(true, "lendas_fov");
@@ -112,32 +115,38 @@ public Action Comando_Fov(int client, int args)
     int minimo = g_CvarMin.IntValue;
     int maximo = g_CvarMax.IntValue;
 
+    // Sem argumento abre o menu; com número continua funcionando pra quem
+    // já sabe o valor que quer e não quer navegar.
     if (args < 1)
     {
-        ReplyToCommand(client, "\x04[LENDAS]\x01 Seu FOV agora é \x04%d\x01. Use \x04!fov <%d-%d>\x01 para mudar, ou \x04!fov 0\x01 para voltar ao seu padrão.",
-            Lendas_FovAtual(client), minimo, maximo);
+        Lendas_AbrirMenu(client);
         return Plugin_Handled;
     }
 
     char arg[8];
     GetCmdArg(1, arg, sizeof(arg));
-    int desejado = StringToInt(arg);
+    Lendas_Definir(client, StringToInt(arg), minimo, maximo);
+    return Plugin_Handled;
+}
 
+/** Aplica uma escolha, venha ela do menu ou do comando digitado. */
+void Lendas_Definir(int client, int desejado, int minimo, int maximo)
+{
     if (desejado == 0)
     {
         // Volta pro que o cliente tem no `fov_desired` dele, que é o valor
         // que ele veria sem este plugin.
         SetClientCookie(client, g_hCookie, "");
         QueryClientConVar(client, "fov_desired", Lendas_FovConsultado);
-        ReplyToCommand(client, "\x04[LENDAS]\x01 Seu FOV voltou ao padrão.");
-        return Plugin_Handled;
+        PrintToChat(client, "\x04[LENDAS]\x01 Seu FOV voltou ao padrão.");
+        return;
     }
 
     if (desejado < minimo || desejado > maximo)
     {
-        ReplyToCommand(client, "\x04[LENDAS]\x01 O FOV precisa ficar entre \x04%d\x01 e \x04%d\x01. O padrão do jogo é %d.",
+        PrintToChat(client, "\x04[LENDAS]\x01 O FOV precisa ficar entre \x04%d\x01 e \x04%d\x01. O padrão do jogo é %d.",
             minimo, maximo, FOV_PADRAO);
-        return Plugin_Handled;
+        return;
     }
 
     char cookie[8];
@@ -145,8 +154,92 @@ public Action Comando_Fov(int client, int args)
     SetClientCookie(client, g_hCookie, cookie);
     Lendas_Escrever(client, desejado);
 
-    ReplyToCommand(client, "\x04[LENDAS]\x01 FOV ajustado para \x04%d\x01. Fica guardado para as próximas vezes.", desejado);
-    return Plugin_Handled;
+    PrintToChat(client, "\x04[LENDAS]\x01 FOV ajustado para \x04%d\x01. Fica guardado para as próximas vezes.", desejado);
+}
+
+/**
+ * O menu é montado a cada abertura, a partir das cvars de faixa e passo.
+ *
+ * Nada de lista fixa: se alguém apertar o limite no cfg, o menu deixa de
+ * oferecer o que o plugin recusaria em seguida. Uma lista escrita à mão
+ * ficaria mentindo na primeira vez que a faixa mudasse.
+ */
+void Lendas_AbrirMenu(int client)
+{
+    int minimo = g_CvarMin.IntValue;
+    int maximo = g_CvarMax.IntValue;
+    int passo = g_CvarPasso.IntValue;
+    int atual = Lendas_FovAtual(client);
+
+    Menu menu = new Menu(Lendas_MenuEscolha);
+    menu.SetTitle("Campo de visão\nO padrão do CS:S é %d", FOV_PADRAO);
+
+    char info[8], rotulo[48];
+    bool atualNaLista = false;
+
+    for (int fov = minimo; fov <= maximo; fov += passo)
+    {
+        IntToString(fov, info, sizeof(info));
+        if (fov == atual)
+        {
+            atualNaLista = true;
+            Format(rotulo, sizeof(rotulo), "%d  (o seu agora)", fov);
+        }
+        else
+        {
+            Format(rotulo, sizeof(rotulo), "%d", fov);
+        }
+        menu.AddItem(info, rotulo);
+    }
+
+    // O passo pode não fechar redondo no topo (de 90 a 110 de 7 em 7 pararia
+    // em 104). O limite superior é o valor que mais interessa a quem abre o
+    // menu, então ele entra de qualquer jeito.
+    if ((maximo - minimo) % passo != 0)
+    {
+        IntToString(maximo, info, sizeof(info));
+        Format(rotulo, sizeof(rotulo), "%d%s", maximo, maximo == atual ? "  (o seu agora)" : "");
+        menu.AddItem(info, rotulo);
+        if (maximo == atual)
+        {
+            atualNaLista = true;
+        }
+    }
+
+    // Quem digitou !fov 97 tem um valor que não cai na lista. Sem esta linha
+    // o menu não mostraria o FOV dele em lugar nenhum.
+    if (!atualNaLista)
+    {
+        Format(rotulo, sizeof(rotulo), "%d  (o seu agora)", atual);
+        menu.AddItem("atual", rotulo, ITEMDRAW_DISABLED);
+    }
+
+    menu.AddItem("0", "Voltar ao padrão");
+    menu.ExitButton = true;
+    menu.Display(client, MENU_TIME_FOREVER);
+}
+
+public int Lendas_MenuEscolha(Menu menu, MenuAction action, int client, int item)
+{
+    if (action == MenuAction_End)
+    {
+        delete menu;
+        return 0;
+    }
+
+    if (action != MenuAction_Select || !IsClientInGame(client))
+    {
+        return 0;
+    }
+
+    char info[8];
+    menu.GetItem(item, info, sizeof(info));
+    Lendas_Definir(client, StringToInt(info), g_CvarMin.IntValue, g_CvarMax.IntValue);
+
+    // Reabre pra quem quiser comparar dois valores sem redigitar o comando.
+    // O menu do CS:S fica na lateral e não tapa a visão do resultado.
+    Lendas_AbrirMenu(client);
+    return 0;
 }
 
 public void Lendas_FovConsultado(QueryCookie cookie, int client, ConVarQueryResult result,
