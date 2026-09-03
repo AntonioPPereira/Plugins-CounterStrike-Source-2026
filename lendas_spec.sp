@@ -4,7 +4,7 @@
 #include <sourcemod>
 #include <sdktools>
 
-#define PLUGIN_VERSION "1.1.0"
+#define PLUGIN_VERSION "1.2.0"
 
 /**
  * Fecha o atalho de "ir pro spec e voltar limpo".
@@ -52,8 +52,14 @@ ConVar g_CvarZoar;
 ConVar g_CvarSom;
 ConVar g_CvarMulta;
 
+ConVar g_CvarTolerancia;
+ConVar g_CvarJanela;
+
 /** Quantas vezes cada um tentou o truque neste mapa. Alimenta a zoação. */
 int g_iTentativas[MAXPLAYERS + 1];
+
+/** Instante em que saiu do time. Mede quanto tempo ficou fora. */
+float g_fSaiuEm[MAXPLAYERS + 1];
 
 /** Dinheiro no instante em que saiu de um time jogável. -1 = sem foto. */
 int g_iDinheiro[MAXPLAYERS + 1];
@@ -82,8 +88,15 @@ public void OnPluginStart()
         "Anuncia no chat quem tentou fugir da dominância indo pro espectador.", _, true, 0.0, true, 1.0);
     g_CvarSom = CreateConVar("lendas_spec_som", "quake/standard/humiliation.mp3",
         "Som tocado na zoação. Vazio = sem som.");
-    g_CvarMulta = CreateConVar("lendas_spec_multa", "0",
-        "Multa em dólares por tentativa. 0 = sem multa, só vergonha.", _, true, 0.0, true, 16000.0);
+    g_CvarMulta = CreateConVar("lendas_spec_multa", "1500",
+        "Multa em dólares. Só a partir da tentativa seguinte à tolerância. 0 = sem multa.",
+        _, true, 0.0, true, 16000.0);
+    g_CvarTolerancia = CreateConVar("lendas_spec_tolerancia", "1",
+        "Quantas idas ao espectador são perdoadas antes de multar. A primeira pode ser motivo de verdade.",
+        _, true, 0.0, true, 10.0);
+    g_CvarJanela = CreateConVar("lendas_spec_janela", "180",
+        "Segundos no espectador para ainda contar como fuga. Quem fica mais que isso saiu por motivo real e não é cobrado.",
+        _, true, 5.0, true, 3600.0);
 
     // O menu de times manda `jointeam <n>`; alguns clientes mandam `spectate`.
     AddCommandListener(Lendas_AntesDeTrocar, "jointeam");
@@ -142,6 +155,7 @@ public void OnClientDisconnect(int client)
 void Lendas_Esquecer(int client)
 {
     g_iDinheiro[client] = -1;
+    g_fSaiuEm[client] = 0.0;
     g_bTemFoto[client] = false;
     for (int i = 0; i <= MaxClients; i++)
     {
@@ -202,6 +216,7 @@ public Action Lendas_AntesDeTrocar(int client, const char[] comando, int args)
     // trocando de TR pra CT — se a troca não for pro espectador, a devolução
     // simplesmente não acontece.
     g_iDinheiro[client] = GetEntProp(client, Prop_Send, "m_iAccount");
+    g_fSaiuEm[client] = GetGameTime();
     g_bTemFoto[client] = true;
 
     if (g_iTemNetprops == 1)
@@ -338,8 +353,44 @@ void Lendas_Zoar(int client)
         return;
     }
 
+    /**
+     * FREIO 1: quanto tempo ficou fora.
+     *
+     * Quem foge de dominância volta correndo — é o sentido da jogada. Quem
+     * saiu por motivo de verdade fica fora bem mais tempo, ou nem volta.
+     * Passou da janela, o estado é devolvido do mesmo jeito (isso é justo
+     * com ele E com quem o domina), mas ninguém é acusado de nada.
+     */
+    float fora = GetGameTime() - g_fSaiuEm[client];
+    if (fora > g_CvarJanela.FloatValue)
+    {
+        if (g_CvarDebug.BoolValue)
+        {
+            LogMessage("%N ficou %.0fs no spec: fora da janela, sem cobrança.", client, fora);
+        }
+        return;
+    }
+
     g_iTentativas[client]++;
     int vezes = g_iTentativas[client];
+
+    /**
+     * FREIO 2: a primeira vez é de graça.
+     *
+     * Ninguém apanha por uma ocorrência isolada. Uma vez é acidente, motivo
+     * real, ou curiosidade; repetir no mesmo mapa é padrão. Como o plugin já
+     * devolve tudo, o espertinho não ganha nada esperando a segunda — só a
+     * conta.
+     */
+    if (vezes <= g_CvarTolerancia.IntValue)
+    {
+        PrintToChat(client, "\x04[LENDAS]\x01 Você voltou como saiu: dinheiro e dominância intactos. Se repetir, tem multa.");
+        if (g_CvarDebug.BoolValue)
+        {
+            LogMessage("%N: tentativa %d dentro da tolerancia, so aviso.", client, vezes);
+        }
+        return;
+    }
 
     char extra[64];
     if (vezes > 1)
