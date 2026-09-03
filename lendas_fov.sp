@@ -6,7 +6,7 @@
 #include <clientprefs>
 #include <sdkhooks>
 
-#define PLUGIN_VERSION "1.5.4"
+#define PLUGIN_VERSION "1.6.0"
 
 /**
  * FOV escolhido pelo jogador, guardado entre sessões.
@@ -70,6 +70,10 @@ ConVar g_CvarPasso;
  */
 int g_iEscolhido[MAXPLAYERS + 1];
 
+/** Experimento de posição do viewmodel: frente, lado, altura. Ver sm_vmteste. */
+float g_fDeslocamento[MAXPLAYERS + 1][3];
+bool g_bDeslocando[MAXPLAYERS + 1];
+
 Handle g_hCookie;
 
 /** FOV padrão do CS:S. Serve de referência nas mensagens e no reset. */
@@ -92,6 +96,7 @@ public void OnPluginStart()
     g_hCookie = RegClientCookie("lendas_fov", "FOV escolhido pelo jogador", CookieAccess_Private);
 
     RegConsoleCmd("sm_fov", Comando_Fov, "Escolhe seu campo de visão. Sem valor, abre o menu.");
+    RegConsoleCmd("sm_vmteste", Comando_VmTeste, "Experimento: sm_vmteste <frente> <lado> <altura>. Move a arma so pra voce.");
     RegConsoleCmd("sm_fovteste", Comando_FovTeste, "Diagnostico: sm_fovteste <m_iFOV> [m_iDefaultFOV]. Aplica so em voce.");
     HookEvent("player_spawn", Evento_Spawn);
 
@@ -111,6 +116,8 @@ public void OnPluginStart()
 public void OnClientPutInServer(int client)
 {
     g_iEscolhido[client] = 0;
+    g_bDeslocando[client] = false;
+    SDKHook(client, SDKHook_PostThinkPost, Lendas_MoverViewmodel);
     SDKHook(client, SDKHook_WeaponSwitchPost, Lendas_TrocaDeArma);
 }
 
@@ -203,6 +210,83 @@ public Action Comando_Fov(int client, int args)
     GetCmdArg(1, arg, sizeof(arg));
     Lendas_Definir(client, StringToInt(arg), minimo, maximo);
     return Plugin_Handled;
+}
+
+/**
+ * Experimento: dá pro SERVIDOR mover a arma na tela?
+ *
+ * É a pergunta que decide se o ajuste de posição estilo CS:GO
+ * (`viewmodel_offset_x/y/z`) é possível aqui. Esses cvars não existem no
+ * CS:S, e a posição do viewmodel é calculada no cliente a cada quadro — se
+ * for só isso, escrever a origem pelo servidor não gruda e o cliente
+ * desenha no lugar de sempre.
+ *
+ * Os eixos seguem a visão do jogador, não o mundo, que é como o CS:GO faz:
+ * frente empurra a arma pra longe da mão, lado joga pra direita (positivo)
+ * ou esquerda (negativo), altura sobe e desce.
+ *
+ * `sm_vmteste 0 0 0` desliga. Afeta só quem chama.
+ */
+public Action Comando_VmTeste(int client, int args)
+{
+    if (client <= 0 || !IsClientInGame(client))
+    {
+        return Plugin_Handled;
+    }
+
+    if (args < 3)
+    {
+        ReplyToCommand(client, "[LENDAS] uso: sm_vmteste <frente> <lado> <altura>   (ex: 8 0 0)");
+        return Plugin_Handled;
+    }
+
+    char a[3][16];
+    for (int i = 0; i < 3; i++)
+    {
+        GetCmdArg(i + 1, a[i], sizeof(a[]));
+        g_fDeslocamento[client][i] = StringToFloat(a[i]);
+    }
+
+    g_bDeslocando[client] = (g_fDeslocamento[client][0] != 0.0
+        || g_fDeslocamento[client][1] != 0.0 || g_fDeslocamento[client][2] != 0.0);
+
+    Lendas_Diag(client, "deslocamento: frente=%.1f lado=%.1f altura=%.1f (%s)",
+        g_fDeslocamento[client][0], g_fDeslocamento[client][1], g_fDeslocamento[client][2],
+        g_bDeslocando[client] ? "ligado" : "desligado");
+    return Plugin_Handled;
+}
+
+/** Empurra a origem do viewmodel a cada tick, nos eixos da visão. */
+public void Lendas_MoverViewmodel(int client)
+{
+    if (!g_bDeslocando[client] || !IsPlayerAlive(client))
+    {
+        return;
+    }
+
+    float olhos[3], frente[3], lado[3], cima[3];
+    GetClientEyeAngles(client, olhos);
+    GetAngleVectors(olhos, frente, lado, cima);
+
+    int total = GetEntPropArraySize(client, Prop_Send, "m_hViewModel");
+    for (int i = 0; i < total; i++)
+    {
+        int vm = GetEntPropEnt(client, Prop_Send, "m_hViewModel", i);
+        if (vm <= 0)
+        {
+            continue;
+        }
+
+        float pos[3];
+        GetEntPropVector(vm, Prop_Send, "m_vecOrigin", pos);
+        for (int e = 0; e < 3; e++)
+        {
+            pos[e] += frente[e] * g_fDeslocamento[client][0]
+                    + lado[e]   * g_fDeslocamento[client][1]
+                    + cima[e]   * g_fDeslocamento[client][2];
+        }
+        TeleportEntity(vm, pos, NULL_VECTOR, NULL_VECTOR);
+    }
 }
 
 /**
