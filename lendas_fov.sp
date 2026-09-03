@@ -4,8 +4,9 @@
 #include <sourcemod>
 #include <sdktools>
 #include <clientprefs>
+#include <sdkhooks>
 
-#define PLUGIN_VERSION "1.1.0"
+#define PLUGIN_VERSION "1.2.0"
 
 /**
  * FOV escolhido pelo jogador, guardado entre sessões.
@@ -71,6 +72,51 @@ public void OnPluginStart()
     HookEvent("player_spawn", Evento_Spawn);
 
     AutoExecConfig(true, "lendas_fov");
+
+    // Recarga no meio do mapa: quem já está jogando não passa pelo
+    // OnClientPutInServer de novo e ficaria sem o hook até morrer.
+    for (int client = 1; client <= MaxClients; client++)
+    {
+        if (IsClientInGame(client))
+        {
+            OnClientPutInServer(client);
+        }
+    }
+}
+
+public void OnClientPutInServer(int client)
+{
+    SDKHook(client, SDKHook_WeaponSwitchPost, Lendas_TrocaDeArma);
+}
+
+/**
+ * Trocar de arma zera o FOV escolhido.
+ *
+ * O jogo reseta a visão ao guardar a arma anterior — é o mesmo caminho que
+ * tira o zoom da AWP quando se troca de arma com a mira aberta. Ele não sabe
+ * distinguir "sair da mira" de "voltar pro FOV que o jogador escolheu", e
+ * manda os dois de volta pro padrão.
+ *
+ * Reaplicar no spawn não bastava: a primeira troca de arma da rodada já
+ * desfazia. Aqui a escolha é reposta a cada troca.
+ *
+ * Não precisa checar se está com mira: guardar a arma sempre fecha o zoom
+ * antes, então neste ponto o jogador nunca está mirando.
+ */
+public void Lendas_TrocaDeArma(int client, int weapon)
+{
+    // O jogo escreve o FOV DEPOIS deste callback. Escrever agora seria
+    // sobrescrito no mesmo frame, e o bug continuaria igual.
+    RequestFrame(Lendas_ReaplicarNoFrame, GetClientUserId(client));
+}
+
+public void Lendas_ReaplicarNoFrame(any userid)
+{
+    int client = GetClientOfUserId(userid);
+    if (client > 0 && IsClientInGame(client) && IsPlayerAlive(client))
+    {
+        Lendas_AplicarGuardado(client);
+    }
 }
 
 /** Cookie chegou depois do jogador já estar em jogo: aplica na hora. */
