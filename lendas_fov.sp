@@ -6,7 +6,7 @@
 #include <clientprefs>
 #include <sdkhooks>
 
-#define PLUGIN_VERSION "1.3.0"
+#define PLUGIN_VERSION "1.4.0"
 
 /**
  * FOV escolhido pelo jogador, guardado entre sessões.
@@ -22,12 +22,25 @@
  * 3. metade dele é Team Fortress 2 (`TF2_OnConditionAdded`, `TFCond_Zoomed`),
  *    inútil aqui.
  *
- * O valor escolhido vai pro `m_iDefaultFOV`, fica guardado num cookie do
- * clientprefs e é reposto a cada spawn e a cada troca de arma.
+ * O valor escolhido vai pros dois netprops de FOV, fica guardado num cookie
+ * do clientprefs e é reposto a cada spawn e a cada troca de arma.
  *
- * O `m_iFOV` NÃO é escrito — ver `Lendas_Escrever`, que explica por quê. É a
- * diferença central em relação ao plugin do McKay, e a razão de as armas
- * ficarem invisíveis com ele neste jogo.
+ * O PROBLEMA DAS ARMAS INVISÍVEIS, e a aposta desta versão:
+ *
+ * Escrever `m_iFOV` é o único jeito de o mundo abrir de verdade — mexer só no
+ * `m_iDefaultFOV` deixa a visão travada em 90 e apenas aproxima a arma da
+ * cara, medido em jogo. Só que o CS:S trata `m_iFOV` diferente de zero como
+ * "estou de luneta" e para de desenhar a arma.
+ *
+ * O `ShouldDraw()` do viewmodel no SDK aberto não tem condição nenhuma de
+ * FOV, então quem esconde é código do CS:S que a Valve não publicou. Restam
+ * duas possibilidades, e elas se distinguem por teste:
+ *
+ *   - o servidor marca `EF_NODRAW` no viewmodel  -> limpar a marca resolve;
+ *   - o cliente decide sozinho não desenhar      -> não tem jeito, ponto.
+ *
+ * `Lendas_PosPensar` limpa a marca. Se a arma continuar sumida, é a segunda
+ * possibilidade e este caminho está encerrado.
  */
 
 public Plugin myinfo =
@@ -43,6 +56,19 @@ ConVar g_CvarEnabled;
 ConVar g_CvarMin;
 ConVar g_CvarMax;
 ConVar g_CvarPasso;
+
+/** Bandeira do engine: viewmodel marcado assim não é desenhado. const.h. */
+#define EF_NODRAW (1 << 5)
+
+/**
+ * FOV que ESTE plugin escreveu, por jogador. 0 = não mexemos nele.
+ *
+ * Serve pra distinguir o nosso FOV do zoom de verdade da AWP: quando o
+ * `m_iFOV` do jogador é diferente deste valor, quem mexeu foi a arma, e aí
+ * não se força arma nenhuma a aparecer — a luneta tem que continuar
+ * escondendo o modelo, como sempre fez.
+ */
+int g_iEscolhido[MAXPLAYERS + 1];
 
 Handle g_hCookie;
 
@@ -83,7 +109,47 @@ public void OnPluginStart()
 
 public void OnClientPutInServer(int client)
 {
+    g_iEscolhido[client] = 0;
     SDKHook(client, SDKHook_WeaponSwitchPost, Lendas_TrocaDeArma);
+    SDKHook(client, SDKHook_PostThinkPost, Lendas_PosPensar);
+}
+
+public void OnClientDisconnect(int client)
+{
+    g_iEscolhido[client] = 0;
+}
+
+/**
+ * Desfaz, quadro a quadro, o esconde-esconde do jogo.
+ *
+ * Roda a cada tick por jogador, então sai cedo na primeira linha para quem
+ * não escolheu FOV — que é a maioria.
+ */
+public void Lendas_PosPensar(int client)
+{
+    if (g_iEscolhido[client] == 0 || !IsPlayerAlive(client))
+    {
+        return;
+    }
+
+    // FOV diferente do nosso = a arma está com zoom de verdade. Nesse caso a
+    // luneta DEVE esconder o modelo, e forçar aqui estragaria a AWP.
+    if (GetEntProp(client, Prop_Send, "m_iFOV") != g_iEscolhido[client])
+    {
+        return;
+    }
+
+    int viewmodel = GetEntPropEnt(client, Prop_Send, "m_hViewModel");
+    if (viewmodel <= 0 || !IsValidEdict(viewmodel))
+    {
+        return;
+    }
+
+    int efeitos = GetEntProp(viewmodel, Prop_Send, "m_fEffects");
+    if (efeitos & EF_NODRAW)
+    {
+        SetEntProp(viewmodel, Prop_Send, "m_fEffects", efeitos & ~EF_NODRAW);
+    }
 }
 
 /**
@@ -294,7 +360,7 @@ public void Lendas_FovConsultado(QueryCookie cookie, int client, ConVarQueryResu
     }
 
     int valor = StringToInt(cvarValue);
-    Lendas_Escrever(client, valor > 0 ? valor : FOV_PADRAO);
+    Lendas_Limpar(client, valor > 0 ? valor : FOV_PADRAO);
 }
 
 void Lendas_AplicarGuardado(int client)
@@ -346,7 +412,16 @@ void Lendas_AplicarGuardado(int client)
 void Lendas_Escrever(int client, int fov)
 {
     SetEntProp(client, Prop_Send, "m_iDefaultFOV", fov);
+    SetEntProp(client, Prop_Send, "m_iFOV", fov);
+    g_iEscolhido[client] = fov;
+}
+
+/** Devolve o jogador ao estado natural: sem FOV nosso, sem forçar desenho. */
+void Lendas_Limpar(int client, int padrao)
+{
+    SetEntProp(client, Prop_Send, "m_iDefaultFOV", padrao);
     SetEntProp(client, Prop_Send, "m_iFOV", 0);
+    g_iEscolhido[client] = 0;
 }
 
 int Lendas_FovAtual(int client)
