@@ -11,7 +11,9 @@ funcionou como o manual diz**. Por isso cada entrada abaixo traz, junto do que o
 plugin faz, o **achado de engine** que obrigou ele a existir — que é a parte que
 não está documentada em lugar nenhum e a que provavelmente te trouxe aqui.
 
-Escritos em português. Código, comentários e mensagens de jogo.
+Escritos em português — código, comentários e mensagens de jogo. O prefixo
+`lendas_` é só namespace, pra não colidir com plugin de terceiro; nada nos
+plugins depende de um servidor específico.
 
 ---
 
@@ -34,6 +36,22 @@ Escritos em português. Código, comentários e mensagens de jogo.
 | [`lendas_players`](#lendas_players) | Índice de nick para SteamID64 |
 | [`lendas_bans`](#lendas_bans) | Exporta banimentos do SourceBans++ para JSON |
 | [`lendas_fov`](#lendas_fov) | **Encerrado.** Documenta por que FOV é impossível no CS:S |
+
+### Nem todo plugin faz sentido sozinho
+
+Nove rodam em qualquer servidor de CS:S sem mais nada: `spec`, `firenade`,
+`clantag`, `viewmodel`, `noscope`, `headshotfx`, `tickinfo`, `steamfilter` e
+`demos`.
+
+Os outros precisam de algo do outro lado:
+
+- **`live`** manda POST pra um endereço HTTP que você tem que ter. Sem backend, ele
+  só enche a fila e desiste;
+- **`bans`** exige o SourceBans++ instalado — ele lê o banco dele;
+- **`matches`, `players` e `playerstats`** escrevem JSON no disco do servidor. Rodam
+  sozinhos, mas o arquivo só vale se alguma coisa sua for ler.
+
+O achado de engine de cada um continua valendo mesmo que você não use o plugin.
 
 ---
 
@@ -208,8 +226,8 @@ parâmetro não é lido por ninguém. Os assets da release têm nome enganoso �
 Grava a demo do SourceTV por mapa, em `demos/AAAA-MM/AAAAMMDD-HHMM-mapa.dem`.
 
 **O achado.** `tv_autorecord` não serve quando alguém precisa ler os arquivos
-depois: ele gera nomes `auto-…`. Carimbar o nome na mão é o que deixa a gravação
-casável com o placar.
+depois: ele gera nomes `auto-…`. Carimbar o nome na mão é o que permite
+ligar cada gravação ao mapa e ao horário depois, por script.
 
 O nome é escrito depois de esperar o bot do SourceTV entrar, e esses segundos cruzam
 a virada do minuto de vez em quando. Quem for casar demo com partida precisa de
@@ -298,9 +316,9 @@ Boa parte do que está acima não veio de documentação — veio de abrir o bin
 
 Um `.smx` guarda suas strings comprimidas em zlib, na seção apontada por
 `readUInt32LE(0x14)`. Descomprimir e ler revela quais netprops, cvars e sons um
-plugin toca, **mesmo sem o código-fonte**. Foi assim que apareceu o segundo slot de
-viewmodel que explicava uma skin sumida, e assim que se provou qual versão estava
-realmente no ar quando o número da versão mentia.
+plugin toca, **mesmo sem o código-fonte**. Serve pra descobrir que um jogador tem
+dois slots de viewmodel e o plugin de skin usa o segundo, ou pra provar qual build
+está mesmo rodando quando o número da versão mente.
 
 A outra metade veio de medir em vez de supor:
 
