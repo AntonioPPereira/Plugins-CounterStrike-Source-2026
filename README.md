@@ -1,3 +1,7 @@
+<p align="center">
+  <img src="docs/capa.jpg" alt="Counter-Strike: Source" width="760">
+</p>
+
 # Plugins de Counter-Strike: Source
 
 Quinze plugins SourceMod escritos para servidores de CS:S, em produção desde 2026.
@@ -317,3 +321,7 @@ nenhuma. Só restou reescrever do zero.
 
 Binário compilado não é fonte. Enquanto o `.sp` só existir numa pasta solta, uma
 cópia errada apaga o trabalho de vez.
+
+---
+
+<sub>Arte de capa: material promocional de Counter-Strike: Source, da Valve.</sub>
