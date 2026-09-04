@@ -2,147 +2,152 @@
   <img src="docs/capa.png" alt="Counter-Strike: Source" width="760">
 </p>
 
-# Plugins de Counter-Strike: Source
+<p align="center"><b>English</b> · <a href="README.pt-BR.md">Português</a></p>
 
-Quinze plugins SourceMod escritos para servidores de CS:S, em produção desde 2026.
+# Counter-Strike: Source plugins
 
-Cada um existe porque alguma coisa no jogo **estava quebrada, faltando, ou nunca
-funcionou como o manual diz**. Por isso cada entrada abaixo traz, junto do que o
-plugin faz, o **achado de engine** que obrigou ele a existir — que é a parte que
-não está documentada em lugar nenhum e a que provavelmente te trouxe aqui.
+Fifteen SourceMod plugins running in production on CS:S servers since 2026.
 
-Escritos em português — código, comentários e mensagens de jogo. O prefixo
-`lendas_` é só namespace, pra não colidir com plugin de terceiro; nada nos
-plugins depende de um servidor específico.
+Every one of them exists because something in the game **was broken, missing, or
+never worked the way the documentation says**. So each entry below carries, next to
+what the plugin does, the **engine finding** that forced it into existence — which is
+the part that isn't written down anywhere else, and probably what brought you here.
+
+The code, its comments and the in-game messages are in **Portuguese**. The `lendas_`
+prefix is just a namespace to avoid colliding with third-party plugins; nothing here
+depends on a particular server.
 
 ---
 
-## Índice
+## Index
 
-| Plugin | O que faz |
+| Plugin | What it does |
 |---|---|
-| [`lendas_spec`](#lendas_spec) | Impede zerar dominância e farmar dinheiro pelo espectador |
-| [`lendas_firenade`](#lendas_firenade) | Molotov, com a fumaça apagando o fogo como no CS2 |
-| [`lendas_clantag`](#lendas_clantag) | Devolve a tag de grupo Steam que o jogo parou de exibir |
-| [`lendas_viewmodel`](#lendas_viewmodel) | Posição da arma na tela, por jogador |
-| [`lendas_noscope`](#lendas_noscope) | Anuncia abates de AWP e Scout sem mira |
-| [`lendas_headshotfx`](#lendas_headshotfx) | Sangue direcional no ponto atingido |
-| [`lendas_tickinfo`](#lendas_tickinfo) | Diagnóstico: linha de comando do srcds e tickrate real |
-| [`lendas_demos`](#lendas_demos) | Grava demos do SourceTV com nome estruturado |
-| [`lendas_matches`](#lendas_matches) | Persiste placar, rounds e scoreboard |
-| [`lendas_live`](#lendas_live) | Manda o estado da partida ao vivo pra um backend HTTP |
-| [`lendas_steamfilter`](#lendas_steamfilter) | Portaria: horas, idade da conta, VAC, perfil privado |
-| [`lendas_playerstats`](#lendas_playerstats) | Abates por arma, headshots e bombas |
-| [`lendas_players`](#lendas_players) | Índice de nick para SteamID64 |
-| [`lendas_bans`](#lendas_bans) | Exporta banimentos do SourceBans++ para JSON |
-| [`lendas_fov`](#lendas_fov) | **Encerrado.** Documenta por que FOV é impossível no CS:S |
+| [`lendas_spec`](#lendas_spec) | Stops players wiping dominations and farming money via spectator |
+| [`lendas_firenade`](#lendas_firenade) | Molotov, with smoke extinguishing the fire like in CS2 |
+| [`lendas_clantag`](#lendas_clantag) | Restores the Steam group tag the game stopped displaying |
+| [`lendas_viewmodel`](#lendas_viewmodel) | Per-player weapon position on screen |
+| [`lendas_noscope`](#lendas_noscope) | Announces AWP and Scout no-scope kills |
+| [`lendas_headshotfx`](#lendas_headshotfx) | Directional blood at the point of impact |
+| [`lendas_tickinfo`](#lendas_tickinfo) | Diagnostic: srcds command line and the real tickrate |
+| [`lendas_demos`](#lendas_demos) | Records SourceTV demos with structured filenames |
+| [`lendas_matches`](#lendas_matches) | Persists score, rounds and scoreboard |
+| [`lendas_live`](#lendas_live) | Pushes live match state to an HTTP backend |
+| [`lendas_steamfilter`](#lendas_steamfilter) | Join gate: playtime, account age, VAC, private profile |
+| [`lendas_playerstats`](#lendas_playerstats) | Kills per weapon, headshots and bomb plants |
+| [`lendas_players`](#lendas_players) | Nickname to SteamID64 index |
+| [`lendas_bans`](#lendas_bans) | Exports SourceBans++ bans to JSON |
+| [`lendas_fov`](#lendas_fov) | **Retired.** Documents why FOV is impossible on CS:S |
 
-### Nem todo plugin faz sentido sozinho
+### Not every plugin is useful on its own
 
-Nove rodam em qualquer servidor de CS:S sem mais nada: `spec`, `firenade`,
-`clantag`, `viewmodel`, `noscope`, `headshotfx`, `tickinfo`, `steamfilter` e
-`demos`.
+Nine run on any CS:S server with nothing else: `spec`, `firenade`, `clantag`,
+`viewmodel`, `noscope`, `headshotfx`, `tickinfo`, `steamfilter` and `demos`.
 
-Os outros precisam de algo do outro lado:
+The rest need something on the other end:
 
-- **`live`** manda POST pra um endereço HTTP que você tem que ter. Sem backend, ele
-  só enche a fila e desiste;
-- **`bans`** exige o SourceBans++ instalado — ele lê o banco dele;
-- **`matches`, `players` e `playerstats`** escrevem JSON no disco do servidor. Rodam
-  sozinhos, mas o arquivo só vale se alguma coisa sua for ler.
+- **`live`** POSTs to an HTTP endpoint you have to provide. With no backend it just
+  fills its queue and gives up;
+- **`bans`** requires SourceBans++ installed — it reads its database;
+- **`matches`, `players` and `playerstats`** write JSON to the server's disk. They run
+  fine alone, but the file is only worth anything if something of yours reads it.
 
-O achado de engine de cada um continua valendo mesmo que você não use o plugin.
+The engine finding behind each one still holds even if you never run the plugin.
 
 ---
 
-## Compilar
+## Building
 
-Precisa do compilador do SourceMod (`spcomp` / `spcomp64`) e dos includes dele.
+You need the SourceMod compiler (`spcomp` / `spcomp64`) and its includes.
 
 ```powershell
-.\build.ps1 -Compiler "C:\caminho\para\scripting\spcomp64.exe"
+.\build.ps1 -Compiler "C:\path\to\scripting\spcomp64.exe"
 ```
 
-Os `.smx` saem em `build/`. O script compila todos antes de reclamar e lista as
-falhas no fim — parar no primeiro erro esconderia que os outros estão bem.
+The `.smx` files land in `build/`. The script compiles everything before complaining
+and lists the failures at the end — stopping at the first error would hide that the
+other fourteen are fine.
 
-Para compilar um só:
+To build a single one:
 
 ```
 spcomp64 scripting/lendas_spec.sp -o build/lendas_spec.smx
 ```
 
-### A única dependência externa
+### The one external dependency
 
-Três plugins — `lendas_clantag`, `lendas_live` e `lendas_steamfilter` — usam
-[**SteamWorks**](https://github.com/KyleSanderson/SteamWorks), que **não vem com o
-SourceMod**. Sem o include deles, esses três falham com
-`error 417: cannot read from file: "SteamWorks"` e os outros doze compilam normal.
+Three plugins — `lendas_clantag`, `lendas_live` and `lendas_steamfilter` — use
+[**SteamWorks**](https://github.com/KyleSanderson/SteamWorks), which **does not ship
+with SourceMod**. Without its include, those three fail with
+`error 417: cannot read from file: "SteamWorks"` and the other twelve build normally.
 
-Baixe o SteamWorks e aponte a pasta de include:
+Grab SteamWorks and point the script at its include folder:
 
 ```powershell
 .\build.ps1 -Compiler "...\spcomp64.exe" -Include "C:\steamworks\include"
 ```
 
-O resto usa só o que já vem na instalação do SourceMod.
+Everything else only uses what already comes with SourceMod.
 
-## Instalar
+## Installing
 
-Copie o `.smx` para `addons/sourcemod/plugins/`. Todos usam `AutoExecConfig`, então
-o `.cfg` nasce sozinho em `cfg/sourcemod/` no primeiro carregamento — **e é ele que
-vale**, não o `server.cfg`: os cfg do SourceMod rodam depois e sobrescrevem.
+Copy the `.smx` into `addons/sourcemod/plugins/`. All of them use `AutoExecConfig`, so
+the `.cfg` is generated on first load in `cfg/sourcemod/` — **and that is the file that
+wins**, not `server.cfg`: SourceMod's configs run afterwards and overwrite it.
 
 ---
 
-## Os plugins
+## The plugins
 
 ### `lendas_spec`
 
-Impede zerar dominância e ganhar dinheiro indo ao espectador e voltando.
+Stops players from wiping dominations and gaining money by going to spectator and
+coming back.
 
-**O buraco.** O jogador dominado ia pro espectador e voltava limpo: a dominância
-sumia e ele ainda recebia o dinheiro inicial de novo.
+**The gap.** A dominated player would go spectator and return clean: the domination
+was gone and he collected the starting money again.
 
-**O achado.** Trocar de time limpa as relações de `m_bPlayerDominated`, e reentrar
-num time paga `mp_startmoney` — nas rodadas de faca isso vale $10.000, não $800.
+**The finding.** Changing teams clears the `m_bPlayerDominated` relationships, and
+rejoining a team pays out `mp_startmoney` — on knife rounds that is $10,000, not $800.
 
-A foto do estado tem que ser tirada no listener de `jointeam`, **antes** da troca.
-No evento `player_team` já é tarde: o jogo zerou tudo antes de avisar. E a
-devolução espera o quadro seguinte, senão o jogo sobrescreve.
+The state has to be captured in a `jointeam` command listener, **before** the switch.
+By the time the `player_team` event fires it is too late: the game already wiped
+everything before announcing it. And restoring has to wait one frame, or the game
+overwrites it.
 
-O espelho da dominância no **outro** jogador também precisa ser reposto, senão um
-lado vê a relação e o outro não.
+The mirror of the domination on the **other** player has to be restored too, otherwise
+one side sees the relationship and the other doesn't.
 
-Quem repete leva anúncio no chat, som e multa. Dois freios evitam acusar inocente:
-quem fica mais que `lendas_spec_janela` segundos no espectador não é cobrado, e
-`lendas_spec_tolerancia` perdoa as primeiras.
+Repeat offenders get called out in chat, with a sound and a fine. Two brakes keep
+innocent players out of it: anyone who stays in spectator longer than
+`lendas_spec_janela` seconds is never charged, and `lendas_spec_tolerancia` forgives
+the first few.
 
 ### `lendas_firenade`
 
-Granada incendiária, com a fumaça apagando o fogo como no CS2.
+Incendiary grenade, with smoke putting the fire out the way CS2 does it.
 
-**O achado.** A entrada `Extinguish` do `env_fire` **não aceita parâmetro** neste
-engine — o wiki da Valve diz o contrário, e passar um valor derruba o link de
-entrada/saída com `doesn't match type from env_fire()`.
+**The finding.** The `env_fire` `Extinguish` input **takes no parameter** on this
+engine — the Valve wiki says otherwise, and passing a value breaks the I/O link with
+`doesn't match type from env_fire()`.
 
-`m_FadeStartTime` e `m_FadeEndTime` do `env_particlesmokegrenade` são segundos
-**desde o spawn**, não instantes absolutos. É o que permite dissipar a fumaça em
-vez de matar a entidade, que some de uma vez e fica feio.
+`m_FadeStartTime` and `m_FadeEndTime` on `env_particlesmokegrenade` are seconds
+**since spawn**, not absolute timestamps. That is what lets the smoke dissipate
+instead of killing the entity, which pops out of existence and looks wrong.
 
-`StopSound` tem que vir **antes** do `Kill`, ou o som do fogo continua tocando
-depois da chama apagar.
+`StopSound` has to come **before** `Kill`, or the fire keeps crackling after the flame
+is gone.
 
 ### `lendas_clantag`
 
-Devolve a tag do grupo Steam do jogador, que o jogo parou de exibir.
+Restores the player's Steam group tag, which the game stopped displaying.
 
-**O buraco.** Depois de uma atualização, nenhum jogador conseguia usar a própria
-tag de grupo. É bug do jogo — [issue aberta desde 2019](https://github.com/ValveSoftware/Source-1-Games/issues/2853),
-sem correção.
+**The gap.** After a game update, no player could use their own group tag. It is a bug
+in the game — [open since 2019](https://github.com/ValveSoftware/Source-1-Games/issues/2853),
+still unfixed.
 
-**O achado.** O cliente **continua enviando** `cl_clanid`. Só a exibição quebrou.
-Daí dá pra refazer o trabalho por fora:
+**The finding.** The client **still sends** `cl_clanid`. Only the display broke. So the
+work can be redone from outside:
 
 ```
 gid64 = 103582791429521408 + cl_clanid
@@ -151,185 +156,187 @@ GET /groups/<vanity>                     → grouppage_header_abbrev
 CS_SetClientClanTag
 ```
 
-São **duas** requisições porque nenhuma redireciona, e porque o XML do grupo não
-traz a abreviação — ela só existe no HTML da página, lá pelo byte 34.000 de 74 KB,
-o que inviabiliza `Range`.
+It takes **two** requests because neither one redirects, and because the group XML
+doesn't carry the abbreviation — that only exists in the page HTML, around byte 34,000
+of 74 KB, which rules out a `Range` request.
 
-A soma de 64 bits é feita dígito a dígito: SourcePawn não tem inteiro de 64 bits.
+The 64-bit addition is done digit by digit: SourcePawn has no 64-bit integer.
 
-Só escreve quando a tag atual está **vazia**, pra conviver com plugins de mix que
-põem tag de time.
+It only writes when the current tag is **empty**, so it coexists with mix plugins that
+set team tags.
 
 ### `lendas_viewmodel`
 
-Deixa cada jogador escolher o quão perto a arma aparece na tela.
+Lets each player choose how close their weapon sits on screen.
 
-**O buraco.** O CS:S não tem `viewmodel_offset_x/y/z` (são do CS:GO) e o
-`viewmodel_fov` é resto morto do Half-Life 2 — o comando existe e não faz nada.
+**The gap.** CS:S has no `viewmodel_offset_x/y/z` (those are CS:GO) and its
+`viewmodel_fov` is dead code inherited from Half-Life 2 — the command exists and does
+nothing.
 
-**O achado.** O cliente trata os dois lados do FOV padrão de forma **assimétrica**:
+**The finding.** The client treats the two sides of the default FOV **asymmetrically**:
 
-- **acima de 90** ele recusa alargar a visão, e só a câmera do viewmodel se desloca,
-  por `fovViewmodel = viewmodel_fov - (m_iDefaultFOV - 90)`. Arma mais perto, mundo
-  intacto;
-- **abaixo de 90** ele aceita, porque estreitar é zoom — e o estado de zoom apaga a
-  arma da tela.
+- **above 90** it refuses to widen the view, so only the viewmodel camera shifts, by
+  `fovViewmodel = viewmodel_fov - (m_iDefaultFOV - 90)`. Weapon closer, world
+  untouched;
+- **below 90** it accepts, because narrowing is zoom — and the zoom state hides the
+  weapon entirely.
 
-Por isso dá pra aproximar a arma e é impossível afastar. O 90 não é escolha de
-quem escreve o plugin: é fronteira do engine. Quem quiser a arma mais longe precisa de pacote de modelos
-com a geometria reposicionada, do lado do cliente.
+That is why the weapon can be pulled closer and never pushed away. The 90 isn't the
+plugin author's choice: it is the engine's boundary. Anyone who wants the weapon
+further back needs a model pack with repositioned geometry, client-side.
 
 ### `lendas_noscope`
 
-Anuncia eliminações de AWP e Scout sem mira, com a distância aproximada.
+Announces AWP and Scout kills taken without scoping, with the approximate distance.
 
-**O achado.** `m_bIsScoped` **não existe** no CS:S — é netprop de CS:GO. A detecção
-cai no `m_iFOV`, e comparar com **90 fixo é armadilha**: qualquer plugin de FOV põe
-o jogador permanentemente dentro da faixa lida como "com mira", e nenhum abate dele
-volta a contar.
+**The finding.** `m_bIsScoped` **does not exist** on CS:S — it is a CS:GO netprop.
+Detection falls back to `m_iFOV`, and comparing against a **hardcoded 90 is a trap**:
+any FOV plugin parks the player permanently inside the range read as "scoped", and none
+of their kills ever count again.
 
-A comparação certa é contra o `m_iDefaultFOV` do próprio jogador. Sem plugin de FOV
-os dois valores são iguais e o comportamento não muda; com um, só o zoom real da
-arma desce abaixo do padrão.
+The correct comparison is against the player's own `m_iDefaultFOV`. With no FOV plugin
+the two values are identical and nothing changes; with one, only real weapon zoom drops
+below the default.
 
 ### `lendas_headshotfx`
 
-Sangue no ponto atingido, com direção e volume conforme o tiro.
+Blood at the point of impact, with direction and volume matching the shot.
 
-**O achado.** O jato tem que sair na direção da bala — do olho do atirador até o
-ponto de impacto **guardado**, nunca até a posição da vítima lida na hora: no
-`player_death` ela já morreu e a posição não vale mais nada.
+**The finding.** The spray has to travel along the bullet's path — from the attacker's
+eye to the **stored** impact point, never to the victim's position read at that moment:
+by `player_death` they are already dead and their position means nothing.
 
-A altura do respingo vem do hitgroup, com correção pra quem está agachado. Sangue
-sempre na mesma altura lê como cenário, não como tiro.
+Splash height comes from the hitgroup, with a correction for ducking players. Blood
+always at the same height reads as scenery, not as a gunshot.
 
 ### `lendas_tickinfo`
 
-Diagnóstico. Lê de dentro do processo a linha de comando do `srcds` e o intervalo
-por tick em vigor.
+Diagnostic. Reads the `srcds` command line and the tick interval in effect from inside
+the process.
 
-**O buraco.** O painel do host mostrava `-tickrate 100` e o servidor rodava a 66.67.
-Nenhum arquivo no disco contava a verdade.
+**The gap.** The host's control panel showed `-tickrate 100` while the server ran at
+66.67. Nothing on disk told the truth.
 
-**O achado.** Dá pra medir o tickrate **sem entrar no servidor**: o cabeçalho do
-`.dem` tem 1072 bytes fixos, com `playback_time` (float) no offset 1056 e
-`playback_ticks` (int32) no 1060. A divisão dá o tickrate. Demo em gravação tem
-cabeçalho zerado — usar uma fechada.
+**The finding.** You can measure the tickrate **without joining the server**: the `.dem`
+header is a fixed 1072 bytes, with `playback_time` (float) at offset 1056 and
+`playback_ticks` (int32) at 1060. Divide one by the other. A demo still being recorded
+has a zeroed header — use a closed one.
 
-A causa era arquitetura: o addon de tickrate instalado era o build **x86-64** e o
-servidor roda `srcds_linux` de **32 bits**. O `dlopen` falha em silêncio e o
-parâmetro não é lido por ninguém. Os assets da release têm nome enganoso —
-`linux-x86` é o de 32 bits.
+The cause turned out to be architecture: the installed tickrate addon was the
+**x86-64** build while the server runs a **32-bit** `srcds_linux`. `dlopen` fails
+silently and the parameter is read by nobody. The release assets are misleadingly
+named — `linux-x86` is the 32-bit one.
 
 ### `lendas_demos`
 
-Grava a demo do SourceTV por mapa, em `demos/AAAA-MM/AAAAMMDD-HHMM-mapa.dem`.
+Records the SourceTV demo per map into `demos/YYYY-MM/YYYYMMDD-HHMM-map.dem`.
 
-**O achado.** `tv_autorecord` não serve quando alguém precisa ler os arquivos
-depois: ele gera nomes `auto-…`. Carimbar o nome na mão é o que permite
-ligar cada gravação ao mapa e ao horário depois, por script.
+**The finding.** `tv_autorecord` is no good when something has to read the files
+afterwards: it produces `auto-…` filenames. Stamping the name yourself is what lets you
+tie each recording back to a map and a time later, from a script.
 
-O nome é escrito depois de esperar o bot do SourceTV entrar, e esses segundos cruzam
-a virada do minuto de vez em quando. Quem for casar demo com partida precisa de
-**tolerância**, não de igualdade exata.
+The name is written after waiting for the SourceTV bot to connect, and those seconds
+cross the minute boundary now and then. Anything matching demos to matches needs a
+**tolerance**, not an exact comparison.
 
 ### `lendas_matches`
 
-Persiste placar, rounds e scoreboard de cada partida encerrada.
+Persists the score, rounds and scoreboard of every finished match.
 
-**O achado.** `File.ReadLine` trunca em **2048 bytes**, não importa o tamanho do
-buffer que você passar. Um JSON de partida inteira numa linha só passa disso e volta
-cortado — corrompendo o arquivo na próxima escrita.
+**The finding.** `File.ReadLine` truncates at **2048 bytes**, no matter how large a
+buffer you hand it. A whole match as one line of JSON goes past that and comes back
+cut — corrupting the file on the next write.
 
-A saída é JSON Lines, uma partida por linha, sempre em append. Nunca reler e
-reescrever o arquivo todo.
+The output is JSON Lines, one match per line, always appended. Never read the whole
+file back and rewrite it.
 
 ### `lendas_live`
 
-Manda placar, round e jogadores ao vivo pra um backend HTTP.
+Pushes score, round and players to an HTTP backend in real time.
 
-**O achado.** Uma fila de reenvio que trata todo erro igual se envenena: um lote
-recusado com `400` volta pra fila, é recusado de novo, e enche o log de megabytes de
-"fila cheia" até o mapa trocar.
+**The finding.** A retry queue that treats every error the same poisons itself: a batch
+rejected with `400` goes back on the queue, is rejected again, and fills the log with
+megabytes of "queue full" until the map changes.
 
-Erro `4xx` significa que reenviar não vai adiantar — descarta. As exceções são
-`401`, `403` e `429`, que podem melhorar sozinhas.
+A `4xx` means retrying will not help — drop it. The exceptions are `401`, `403` and
+`429`, which can resolve on their own.
 
 ### `lendas_steamfilter`
 
-Portaria via Steam Web API: horas de jogo, idade da conta, VAC, perfil privado,
-jogo compartilhado.
+Join gate via the Steam Web API: playtime, account age, VAC, private profile, family
+sharing.
 
-**O achado.** A whitelist tem que ser conferida **antes** das chamadas à Steam. Quem
-está liberado não deveria depender de a API estar no ar pra conseguir entrar.
+**The finding.** The whitelist has to be checked **before** the Steam calls. Someone
+who is explicitly allowed in shouldn't depend on the API being up to get in.
 
-Linha malformada no arquivo de whitelist vai pro log, nunca é engolida em silêncio —
-um filtro de portaria que falha calado é pior que um que não existe.
+A malformed line in the whitelist file goes to the log, never swallowed silently — a
+door policy that fails quietly is worse than no door policy at all.
 
 ### `lendas_playerstats`
 
-Conta abates por arma, headshots e bombas por jogador.
+Counts kills per weapon, headshots and bomb plants per player.
 
-**O achado.** Gravar a cada evento acaba com o disco num servidor cheio. A escrita é
-periódica e no fim do mapa, com o intervalo numa cvar.
+**The finding.** Writing on every event destroys the disk on a busy server. Writes are
+periodic and at map end, with the interval behind a cvar.
 
 ### `lendas_players`
 
-Índice de nick para SteamID64.
+Nickname to SteamID64 index.
 
-**O achado.** Log de servidor e ranking web guardam nick, não SteamID. Sem uma ponte
-escrita de dentro do jogo não existe jeito confiável de descobrir de quem é aquele
-nome — e aí ou se inventa o dado, ou não se mostra nada.
+**The finding.** Server logs and web rankings store the nickname, not the SteamID.
+Without a bridge written from inside the game there is no reliable way to tell who that
+name belongs to — and then you either make the data up or show nothing.
 
 ### `lendas_bans`
 
-Exporta banimentos e mutes do SourceBans++ para um JSON.
+Exports SourceBans++ bans and mutes to JSON.
 
-**O achado.** Quando o MySQL do SourceBans está fechado pra conexões de fora, o
-servidor de jogo continua sendo um cliente autorizado dele. Exportar de dentro do
-plugin contorna o bloqueio sem abrir porta nenhuma.
+**The finding.** When the SourceBans MySQL is closed to outside connections, the game
+server is still an authorized client of it. Exporting from inside the plugin works
+around the block without opening a single port.
 
 ### `lendas_fov`
 
-**Encerrado.** Fica aqui só pra registrar por que não dá.
+**Retired.** It stays here only to record why this can't be done.
 
-Tentava deixar o jogador escolher o campo de visão. Não é possível por plugin de
-servidor no CS:S, e isso custou seis versões até ficar provado.
+It tried to let players choose their field of view. That is not possible from a server
+plugin on CS:S, and it took six versions to prove it.
 
-**O achado.** Escrever `m_iFOV` abre o mundo **e apaga a arma**. Medido com a arma
-sumida: `m_hZoomOwner` em −1 e `EF_NODRAW` **desligado** no viewmodel — ou seja, o
-servidor não escondia nada. Limpar a marca 66 vezes por segundo não mudou nada, e
-escrever a origem do viewmodel também não (`m_vecOrigin` nem existe como propriedade
-de rede num `predicted_viewmodel`).
+**The finding.** Writing `m_iFOV` widens the world **and erases the weapon**. Measured
+with the weapon gone: `m_hZoomOwner` at −1 and `EF_NODRAW` **clear** on the viewmodel —
+meaning the server was hiding nothing. Clearing that flag 66 times a second changed
+nothing, and neither did writing the viewmodel's origin (`m_vecOrigin` isn't even a
+send prop on a `predicted_viewmodel`).
 
-**Quem não desenha a arma é o cliente.** Nenhum plugin de servidor alcança isso — e é
-exatamente por isso que só programa externo faz FOV no CS:S, e por isso que dá ban.
+**It is the client that refuses to draw the weapon.** No server plugin reaches that —
+which is exactly why only external programs do FOV on CS:S, and exactly why they get
+you banned.
 
-Se você chegou aqui procurando um plugin de FOV para CS:S: não existe, e agora você
-sabe por quê sem gastar a semana que eu gastei.
-
----
-
-## Como isso foi investigado
-
-Boa parte do que está acima não veio de documentação — veio de abrir o binário.
-
-Um `.smx` guarda suas strings comprimidas em zlib, na seção apontada por
-`readUInt32LE(0x14)`. Descomprimir e ler revela quais netprops, cvars e sons um
-plugin toca, **mesmo sem o código-fonte**. Serve pra descobrir que um jogador tem
-dois slots de viewmodel e o plugin de skin usa o segundo, ou pra provar qual build
-está mesmo rodando quando o número da versão mente.
-
-A outra metade veio de medir em vez de supor:
-
-- netprop que talvez não exista se pergunta com `HasEntProp` **antes** de ler — foi o
-  `m_bIsScoped` que ensinou isso;
-- conclusão tirada de experimento que estourou exceção não vale, e a exceção estava
-  no `errors_*.log` o tempo todo;
-- defeito em arquivo de tradução **desliga o plugin inteiro**, não só o texto: o
-  `LoadTranslations` roda no `OnPluginStart`, e um erro fatal ali aborta o resto da
-  função. Uma aspa faltando deixou um plugin de sons mudo por semanas.
+If you came here looking for a CS:S FOV plugin: there isn't one, and now you know why
+without burning the week I burned.
 
 ---
 
-<sub>Arte de capa: material promocional de Counter-Strike: Source, da Valve.</sub>
+## How this was worked out
+
+Most of what is above didn't come from documentation — it came from opening the binary.
+
+An `.smx` keeps its strings zlib-compressed, in the section pointed at by
+`readUInt32LE(0x14)`. Inflating and reading them reveals which netprops, cvars and
+sounds a plugin touches, **without having the source**. It is how you find out a player
+has two viewmodel slots and the skin plugin is using the second one, or prove which
+build is actually running when the version number lies.
+
+The other half came from measuring instead of assuming:
+
+- a netprop that might not exist gets checked with `HasEntProp` **before** reading —
+  `m_bIsScoped` is what taught that;
+- a conclusion drawn from an experiment that threw an exception is worth nothing, and
+  the exception was sitting in `errors_*.log` the whole time;
+- a broken translation file **disables the entire plugin**, not just its text:
+  `LoadTranslations` runs in `OnPluginStart`, and a fatal error there aborts the rest
+  of the function. One missing quote left a sound plugin silent for weeks.
+
+---
+
+<sub>Cover art: Counter-Strike: Source promotional material, by Valve.</sub>
