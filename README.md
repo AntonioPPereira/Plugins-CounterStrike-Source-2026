@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="docs/capa.jpg" alt="Counter-Strike: Source" width="760">
+  <img src="docs/capa.png" alt="Counter-Strike: Source" width="760">
 </p>
 
 # Plugins de Counter-Strike: Source
