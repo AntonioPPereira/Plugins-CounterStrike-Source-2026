@@ -157,8 +157,8 @@ Deixa cada jogador escolher o quão perto a arma aparece na tela.
 - **abaixo de 90** ele aceita, porque estreitar é zoom — e o estado de zoom apaga a
   arma da tela.
 
-Por isso dá pra aproximar a arma e é impossível afastar. O 90 não é escolha nossa,
-é fronteira do engine. Quem quiser a arma mais longe precisa de pacote de modelos
+Por isso dá pra aproximar a arma e é impossível afastar. O 90 não é escolha de
+quem escreve o plugin: é fronteira do engine. Quem quiser a arma mais longe precisa de pacote de modelos
 com a geometria reposicionada, do lado do cliente.
 
 ### `lendas_noscope`
@@ -311,16 +311,6 @@ A outra metade veio de medir em vez de supor:
 - defeito em arquivo de tradução **desliga o plugin inteiro**, não só o texto: o
   `LoadTranslations` roda no `OnPluginStart`, e um erro fatal ali aborta o resto da
   função. Uma aspa faltando deixou um plugin de sons mudo por semanas.
-
-## Por que o fonte mora aqui
-
-Um servidor teve o conteúdo copiado por cima e perdeu a versão do plugin de demos
-que de fato **gravava** — sobrou uma antiga que só organizava a pasta. O `.sp` dessa
-versão não existia em lugar nenhum: nem no servidor, nem em backup, nem em máquina
-nenhuma. Só restou reescrever do zero.
-
-Binário compilado não é fonte. Enquanto o `.sp` só existir numa pasta solta, uma
-cópia errada apaga o trabalho de vez.
 
 ---
 
