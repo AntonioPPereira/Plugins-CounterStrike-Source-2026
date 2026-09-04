@@ -1,0 +1,9 @@
+# Binarios compilados: o que vale e o .sp.
+build/
+*.smx
+
+# Editor / OS
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
